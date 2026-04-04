@@ -3,6 +3,8 @@ import datetime
 from collections import Counter
 import streamlit as st
 from supabase import create_client, Client
+import folium
+from streamlit_folium import st_folium
 
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
@@ -77,6 +79,11 @@ def stats_by_store_year(entries):
     return [{"store_name": k[0], "year": k[1], "count": v} for k, v in sorted(counter.items())]
 
 
+def stats_by_store_month(entries):
+    counter = Counter((e["stores"]["name"], e["date"][:7]) for e in entries)
+    return [{"store_name": k[0], "month": k[1], "count": v} for k, v in sorted(counter.items())]
+
+
 def main():
     st.set_page_config(page_title="ラーメン記録帳", page_icon="🍜")
     st.title("🍜 ラーメン記録帳")
@@ -91,20 +98,33 @@ def main():
     if selected_store == "新しいお店を登録":
         new_store = True
         store_name = st.text_input("お店の名前")
-        store_lat = None
-        store_lon = None
-        lat_input = st.text_input("GPS 緯度")
-        lon_input = st.text_input("GPS 経度")
-        if lat_input.strip():
-            try:
-                store_lat = float(lat_input)
-            except ValueError:
-                st.warning("緯度は数値で入力してください。例: 35.681236")
-        if lon_input.strip():
-            try:
-                store_lon = float(lon_input)
-            except ValueError:
-                st.warning("経度は数値で入力してください。例: 139.767125")
+
+        st.subheader("📍 お店の場所を選択")
+        st.write("地図をクリックして場所を選択してください。")
+
+        # デフォルトの地図中心（東京）
+        default_lat, default_lon = 35.681236, 139.767125
+
+        # 地図を作成
+        m = folium.Map(location=[default_lat, default_lon], zoom_start=15)
+
+        # クリックで位置を取得するためのプラグイン
+        m.add_child(folium.LatLngPopup())
+
+        # Streamlitで地図を表示し、クリック位置を取得
+        map_data = st_folium(m, height=400, width=700)
+
+        # クリックされた位置を取得
+        if map_data and 'last_clicked' in map_data and map_data['last_clicked']:
+            clicked_lat = map_data['last_clicked']['lat']
+            clicked_lng = map_data['last_clicked']['lng']
+            st.success(f"選択された位置: 緯度 {clicked_lat:.6f}, 経度 {clicked_lng:.6f}")
+            store_lat = clicked_lat
+            store_lon = clicked_lng
+        else:
+            st.info("地図をクリックして場所を選択してください。")
+            store_lat = None
+            store_lon = None
     else:
         new_store = False
         store_index = store_options.index(selected_store) - 1
@@ -163,13 +183,14 @@ def main():
                 if entry.get("comment"):
                     st.write(f"**コメント:** {entry['comment']}")
                 if entry.get("photo_path"):
-                    st.image(entry["photo_path"], caption="ラーメンの写真", use_column_width=True)
+                    st.image(entry["photo_path"], caption="ラーメンの写真", use_container_width=True)
 
     st.markdown("---")
     st.subheader("統計")
     year_stats = stats_by_year(entries)
     month_stats = stats_by_month(entries)
     store_year_stats = stats_by_store_year(entries)
+    store_month_stats = stats_by_store_month(entries)
 
     if year_stats:
         st.write("### 年別の来店回数")
@@ -187,9 +208,52 @@ def main():
         grouped = {f"{r['store_name']} ({r['year']})": r["count"] for r in store_year_stats}
         st.table([{"お店と年": k, "回数": v} for k, v in grouped.items()])
 
+    if store_month_stats:
+        st.write("### お店別・月別の来店回数")
+        for stat in store_month_stats:
+            store_name = stat['store_name']
+            month = stat['month']
+            count = stat['count']
+            with st.expander(f"📍 {store_name} ({month}) - {count}件の来店"):
+                relevant_entries = [e for e in entries if e["stores"]["name"] == store_name and e["date"][:7] == month]
+                if relevant_entries:
+                    for entry in relevant_entries:
+                        col1, col2 = st.columns([2, 1])
+                        with col1:
+                            st.write(f"**{entry['date']}** - {entry['ramen_name']}")
+                            if entry.get("comment"):
+                                st.caption(entry['comment'])
+                        with col2:
+                            st.metric("点数", entry['score'])
+                        if entry.get("photo_path"):
+                            st.image(entry["photo_path"], use_container_width=True, width=200)
+                else:
+                    st.info("この期間の来店情報はありません。")
+
     st.markdown("---")
     st.subheader("登録済みのお店")
     if stores:
+        # お店の場所を地図に表示
+        if any(s['latitude'] and s['longitude'] for s in stores):
+            st.write("### 🗺️ お店の場所")
+            # 地図の中心を最初の店舗の位置にする、またはデフォルト
+            center_lat = stores[0]['latitude'] if stores[0]['latitude'] else 35.681236
+            center_lon = stores[0]['longitude'] if stores[0]['longitude'] else 139.767125
+
+            m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
+
+            for store in stores:
+                if store['latitude'] and store['longitude']:
+                    folium.Marker(
+                        location=[store['latitude'], store['longitude']],
+                        popup=f"<b>{store['name']}</b><br>GPS: {store['latitude']}, {store['longitude']}",
+                        tooltip=store['name']
+                    ).add_to(m)
+
+            st_folium(m, height=400, width=700)
+
+        # お店リスト
+        st.write("### 📋 お店一覧")
         for s in stores:
             st.write(f"- {s['name']} — GPS: {s['latitude'] or '-'} / {s['longitude'] or '-'}")
     else:
