@@ -86,7 +86,7 @@ def stats_by_store_month(entries):
 
 def main():
     st.set_page_config(page_title="ラーメン記録帳", page_icon="🍜")
-    st.title("🍜 ラーメン記録帳")
+    st.title("🍜 ラーメンロガー")
     st.caption("訪問日、写真、お店、ラーメン名、点数、コメントを登録して統計を確認できます。")
 
     stores = fetch_stores()
@@ -136,7 +136,7 @@ def main():
     with st.form("entry_form"):
         visit_date = st.date_input("訪問日", value=datetime.date.today())
         ramen_name = st.text_input("ラーメンの名前")
-        score = st.slider("点数", min_value=1, max_value=10, value=8)
+        score = st.slider("点数（5点満点）", min_value=1, max_value=5, value=4)
         comment = st.text_area("コメント")
         photo = st.file_uploader("写真をアップロード", type=["png", "jpg", "jpeg"])
         submitted = st.form_submit_button("保存する")
