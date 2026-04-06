@@ -86,7 +86,7 @@ def stats_by_store_month(entries):
 
 def main():
     st.set_page_config(page_title="ラーメン記録帳", page_icon="🍜")
-    st.title("🍜 ラーメンロガー")
+    st.markdown("<h2 style='margin-bottom:0'>🍜 ラーメンロガー</h2>", unsafe_allow_html=True)
     st.caption("訪問日、写真、お店、ラーメン名、点数、コメントを登録して統計を確認できます。")
 
     stores = fetch_stores()
@@ -195,19 +195,25 @@ def main():
     if year_stats:
         st.write("### 年別の来店回数")
         st.table([{"年": r["year"], "回数": r["count"]} for r in year_stats])
-        st.bar_chart({r["year"]: r["count"] for r in year_stats})
+#        st.bar_chart({r["year"]: r["count"] for r in year_stats})
     else:
         st.info("年別統計はまだありません。")
 
     if month_stats:
         st.write("### 月別の来店回数")
-        st.table([{"年月": r["month"], "回数": r["count"]} for r in month_stats])
+        available_years = sorted(set(r["month"][:4] for r in month_stats), reverse=True)
+        selected_year = st.selectbox("年を選択", available_years, key="month_year_select")
+        filtered = [r for r in month_stats if r["month"][:4] == selected_year]
+        st.table([{"年月": r["month"], "回数": r["count"]} for r in filtered])
 
     if store_year_stats:
         st.write("### お店別・年別の来店回数")
-        grouped = {f"{r['store_name']} ({r['year']})": r["count"] for r in store_year_stats}
+        available_years = sorted(set(r["year"] for r in store_year_stats), reverse=True)
+        selected_year = st.selectbox("年を選択", available_years, key="store_year_select")
+        filtered = [r for r in store_year_stats if r["year"] == selected_year]
+        grouped = {f"{r['store_name']} ({r['year']})": r["count"] for r in filtered}
         st.table([{"お店と年": k, "回数": v} for k, v in grouped.items()])
-
+        
     if store_month_stats:
         st.write("### お店別・月別の来店回数")
         for stat in store_month_stats:
