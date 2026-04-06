@@ -8,6 +8,8 @@ from supabase import create_client, Client
 import folium
 from streamlit_folium import st_folium
 
+
+
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 BUCKET_NAME = "ramen-photos"
@@ -98,7 +100,7 @@ def stats_by_store_month(entries):
 
 
 def main():
-    st.set_page_config(page_title="ラーメン記録帳", page_icon="🍜")
+    st.set_page_config(page_title="ラーメンロガー", page_icon="images/rlicon.png",)
     st.markdown("<h2 style='margin-bottom:0'>🍜 ラーメンロガー</h2>", unsafe_allow_html=True)
     st.caption("訪問日、写真、お店、ラーメン名、点数、コメントを登録して統計を確認できます。")
 
