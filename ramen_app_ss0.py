@@ -1,6 +1,8 @@
 import uuid
 import datetime
+import io
 from collections import Counter
+from PIL import Image, ImageOps
 import streamlit as st
 from supabase import create_client, Client
 import folium
@@ -53,13 +55,24 @@ def fetch_entries():
     )
     return res.data
 
+def compress_image(file_bytes: bytes, max_size: int = 1280, quality: int = 80) -> bytes:
+    img = Image.open(io.BytesIO(file_bytes))
+    img = ImageOps.exif_transpose(img)  # スマホ写真の回転補正
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    w, h = img.size
+    if max(w, h) > max_size:
+        ratio = max_size / max(w, h)
+        img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=quality)
+    return buf.getvalue()
 
 def upload_photo(file_bytes: bytes, original_name: str) -> str:
-    suffix = original_name.rsplit(".", 1)[-1].lower()
-    file_name = f"{uuid.uuid4().hex}.{suffix}"
-    content_type = "image/png" if suffix == "png" else "image/jpeg"
+    file_bytes = compress_image(file_bytes)  # 圧縮・リサイズ
+    file_name = f"{uuid.uuid4().hex}.jpg"    # 常にJPEGで保存
     get_supabase().storage.from_(BUCKET_NAME).upload(
-        file_name, file_bytes, {"content-type": content_type}
+        file_name, file_bytes, {"content-type": "image/jpeg"}
     )
     return get_supabase().storage.from_(BUCKET_NAME).get_public_url(file_name)
 
@@ -138,7 +151,7 @@ def main():
         ramen_name = st.text_input("ラーメンの名前")
         score = st.slider("点数（5点満点）", min_value=1, max_value=5, value=4)
         comment = st.text_area("コメント")
-        photo = st.file_uploader("写真をアップロード", type=["png", "jpg", "jpeg"])
+        photo = st.file_uploader("写真をアップロード（ファイルサイズが自動的に調整されます）", type=["png", "jpg", "jpeg"])
         submitted = st.form_submit_button("保存する")
 
         if submitted:
@@ -210,31 +223,46 @@ def main():
         st.write("### お店別・年別の来店回数")
         available_years = sorted(set(r["year"] for r in store_year_stats), reverse=True)
         selected_year = st.selectbox("年を選択", available_years, key="store_year_select")
-        filtered = [r for r in store_year_stats if r["year"] == selected_year]
+        filtered = sorted([r for r in store_year_stats if r["year"] == selected_year], key=lambda r: r["count"], reverse=True)
         grouped = {f"{r['store_name']} ({r['year']})": r["count"] for r in filtered}
         st.table([{"お店と年": k, "回数": v} for k, v in grouped.items()])
         
     if store_month_stats:
         st.write("### お店別・月別の来店回数")
-        for stat in store_month_stats:
-            store_name = stat['store_name']
-            month = stat['month']
-            count = stat['count']
-            with st.expander(f"📍 {store_name} ({month}) - {count}件の来店"):
-                relevant_entries = [e for e in entries if e["stores"]["name"] == store_name and e["date"][:7] == month]
-                if relevant_entries:
-                    for entry in relevant_entries:
-                        col1, col2 = st.columns([2, 1])
-                        with col1:
-                            st.write(f"**{entry['date']}** - {entry['ramen_name']}")
-                            if entry.get("comment"):
-                                st.caption(entry['comment'])
-                        with col2:
-                            st.metric("点数", entry['score'])
-                        if entry.get("photo_path"):
-                            st.image(entry["photo_path"], use_container_width=True, width=200)
-                else:
-                    st.info("この期間の来店情報はありません。")
+        available_years = sorted(set(r["month"][:4] for r in store_month_stats), reverse=True)
+        available_months = [f"{m:02d}" for m in range(1, 13)]
+
+        col1, col2 = st.columns(2)
+        with col1:
+            selected_year = st.selectbox("年を選択", available_years, key="store_month_year_select")
+        with col2:
+            selected_month = st.selectbox("月を選択", available_months, key="store_month_month_select")
+
+        target = f"{selected_year}-{selected_month}"
+        filtered_stats = sorted([r for r in store_month_stats if r["month"] == target], key=lambda r: r["count"], reverse=True)
+
+        if not filtered_stats:
+            st.info("該当する記録がありません。")
+        else:
+            for stat in filtered_stats:
+                store_name = stat['store_name']
+                month = stat['month']
+                count = stat['count']
+                with st.expander(f"📍 {store_name} ({month}) - {count}件の来店"):
+                    relevant_entries = [e for e in entries if e["stores"]["name"] == store_name and e["date"][:7] == month]
+                    if relevant_entries:
+                        for entry in relevant_entries:
+                            col1, col2 = st.columns([2, 1])
+                            with col1:
+                                st.write(f"**{entry['date']}** - {entry['ramen_name']}")
+                                if entry.get("comment"):
+                                    st.caption(entry['comment'])
+                            with col2:
+                                st.metric("点数", entry['score'])
+                            if entry.get("photo_path"):
+                                st.image(entry["photo_path"], use_container_width=True, width=200)
+                    else:
+                        st.info("この期間の来店情報はありません。")
 
     st.markdown("---")
     st.subheader("登録済みのお店")
