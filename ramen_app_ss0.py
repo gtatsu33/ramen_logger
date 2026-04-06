@@ -198,7 +198,7 @@ def main():
                 if entry.get("comment"):
                     st.write(f"**コメント:** {entry['comment']}")
                 if entry.get("photo_path"):
-                    st.image(entry["photo_path"], caption="ラーメンの写真", use_container_width=True)
+                    st.image(entry["photo_path"], caption="ラーメンの写真", width='stretch')
 
     st.markdown("---")
     st.subheader("統計")
@@ -262,7 +262,7 @@ def main():
                             with col2:
                                 st.metric("点数", entry['score'])
                             if entry.get("photo_path"):
-                                st.image(entry["photo_path"], use_container_width=True, width=200)
+                                st.image(entry["photo_path"], width='stretch')
                     else:
                         st.info("この期間の来店情報はありません。")
 
@@ -288,10 +288,6 @@ def main():
 
             st_folium(m, height=400, width=700)
 
-        # お店リスト
-        st.write("### 📋 お店一覧")
-        for s in stores:
-            st.write(f"- {s['name']} — GPS: {s['latitude'] or '-'} / {s['longitude'] or '-'}")
     else:
         st.info("まだお店が登録されていません。記録登録で追加できます。")
 
