@@ -70,6 +70,20 @@ def compress_image(file_bytes: bytes, max_size: int = 1280, quality: int = 80) -
     img.save(buf, format="JPEG", quality=quality)
     return buf.getvalue()
 
+def crop_square(url: str) -> bytes:
+    import requests
+    response = requests.get(url)
+    img = Image.open(io.BytesIO(response.content))
+    img = ImageOps.exif_transpose(img)
+    w, h = img.size
+    size = min(w, h)
+    left = (w - size) // 2
+    top = (h - size) // 2
+    img = img.crop((left, top, left + size, top + size))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG")
+    return buf.getvalue()
+
 def upload_photo(file_bytes: bytes, original_name: str) -> str:
     file_bytes = compress_image(file_bytes)  # 圧縮・リサイズ
     file_name = f"{uuid.uuid4().hex}.jpg"    # 常にJPEGで保存
@@ -253,26 +267,26 @@ def main():
         if not filtered_stats:
             st.info("該当する記録がありません。")
         else:
-            for stat in filtered_stats:
-                store_name = stat['store_name']
-                month = stat['month']
-                count = stat['count']
-                with st.expander(f"📍 {store_name} ({month}) - {count}件の来店"):
-                    relevant_entries = [e for e in entries if e["stores"]["name"] == store_name and e["date"][:7] == month]
-                    if relevant_entries:
-                        for entry in relevant_entries:
-                            col1, col2 = st.columns([2, 1])
-                            with col1:
-                                st.write(f"**{entry['date']}** - {entry['ramen_name']}")
-                                if entry.get("comment"):
-                                    st.caption(entry['comment'])
-                            with col2:
-                                st.metric("点数", entry['score'])
-                            if entry.get("photo_path"):
-                                st.image(entry["photo_path"], width='stretch')
-                    else:
-                        st.info("この期間の来店情報はありません。")
-
+            photo_entries = [e for stat in filtered_stats
+                               for e in entries
+                               if e["stores"]["name"] == stat["store_name"] and e["date"][:7] == stat["month"]]
+            cols_per_row = 4
+            rows = [photo_entries[i:i+cols_per_row] for i in range(0, len(photo_entries), cols_per_row)]
+            
+            for row in rows:
+                cols = st.columns(cols_per_row)
+                for col, entry in zip(cols, row):
+                    with col:
+                        if entry.get("photo_path"):
+                            img_bytes = crop_square(entry["photo_path"])
+                            st.image(img_bytes, width='stretch')
+                        else:
+                            st.markdown(
+                                "<div style='border:1px solid #ddd;border-radius:8px;"
+                                "padding:30px;text-align:center;color:#999;'>"
+                                "📷</div>",
+                                unsafe_allow_html=True
+                            )
     st.markdown("---")
     st.subheader("登録済みのお店")
     if stores:
