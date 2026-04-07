@@ -270,23 +270,23 @@ def main():
             photo_entries = [e for stat in filtered_stats
                                for e in entries
                                if e["stores"]["name"] == stat["store_name"] and e["date"][:7] == stat["month"]]
-            cols_per_row = 4
-            rows = [photo_entries[i:i+cols_per_row] for i in range(0, len(photo_entries), cols_per_row)]
-            
-            for row in rows:
-                cols = st.columns(cols_per_row)
-                for col, entry in zip(cols, row):
-                    with col:
-                        if entry.get("photo_path"):
-                            img_bytes = crop_square(entry["photo_path"])
-                            st.image(img_bytes, width='stretch')
-                        else:
-                            st.markdown(
-                                "<div style='border:1px solid #ddd;border-radius:8px;"
-                                "padding:30px;text-align:center;color:#999;'>"
-                                "📷</div>",
-                                unsafe_allow_html=True
-                            )
+            import base64
+            img_html = ""
+            for entry in photo_entries:
+                if entry.get("photo_path"):
+                    img_bytes = crop_square(entry["photo_path"])
+                    b64 = base64.b64encode(img_bytes).decode()
+                    img_html += f'<img src="data:image/jpeg;base64,{b64}" style="width:100%;aspect-ratio:1/1;object-fit:cover;">'
+                else:
+                    img_html += '<div style="aspect-ratio:1/1;background:#f0f0f0;display:flex;align-items:center;justify-content:center;color:#999;">📷</div>'
+
+            st.markdown(
+                f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;">'
+                f'{img_html}'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
     st.markdown("---")
     st.subheader("登録済みのお店")
     if stores:
