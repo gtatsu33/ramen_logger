@@ -175,30 +175,30 @@ def main():
                 st.success("記録を保存しました！")
                 st.rerun()
 
-    st.markdown("---")
-    st.subheader("最新の記録")
+#    st.markdown("---")
+#    st.subheader("最新の記録")
     entries = fetch_entries()
 
-    if not entries:
-        st.info("まだ記録がありません。上のフォームから追加してください。")
-    else:
-        for entry in entries[:10]:
-            store_info = entry.get("stores", {}) or {}
-            with st.expander(
-                f"{entry['date']} - {store_info.get('name', '?')} / {entry['ramen_name']} ({entry['score']}点)"
-            ):
-                st.write(f"**お店:** {store_info.get('name', '-')}")
-                lat = store_info.get("latitude")
-                lon = store_info.get("longitude")
-                if lat is not None and lon is not None:
-                    st.write(f"**GPS:** {lat}, {lon}")
-                st.write(f"**日付:** {entry['date']}")
-                st.write(f"**ラーメン名:** {entry['ramen_name']}")
-                st.write(f"**点数:** {entry['score']}")
-                if entry.get("comment"):
-                    st.write(f"**コメント:** {entry['comment']}")
-                if entry.get("photo_path"):
-                    st.image(entry["photo_path"], caption="ラーメンの写真", width='stretch')
+#    if not entries:
+#        st.info("まだ記録がありません。上のフォームから追加してください。")
+#    else:
+#        for entry in entries[:10]:
+#            store_info = entry.get("stores", {}) or {}
+#            with st.expander(
+#                f"{entry['date']} - {store_info.get('name', '?')} / {entry['ramen_name']} ({entry['score']}点)"
+#            ):
+#                st.write(f"**お店:** {store_info.get('name', '-')}")
+#                lat = store_info.get("latitude")
+#                lon = store_info.get("longitude")
+#                if lat is not None and lon is not None:
+#                    st.write(f"**GPS:** {lat}, {lon}")
+#                st.write(f"**日付:** {entry['date']}")
+#                st.write(f"**ラーメン名:** {entry['ramen_name']}")
+#                st.write(f"**点数:** {entry['score']}")
+#                if entry.get("comment"):
+#                    st.write(f"**コメント:** {entry['comment']}")
+#                if entry.get("photo_path"):
+#                    st.image(entry["photo_path"], caption="ラーメンの写真", width='stretch')
 
     st.markdown("---")
     st.subheader("統計")
@@ -217,7 +217,9 @@ def main():
     if month_stats:
         st.write("### 月別の来店回数")
         available_years = sorted(set(r["month"][:4] for r in month_stats), reverse=True)
-        selected_year = st.selectbox("年を選択", available_years, key="month_year_select")
+        current_year = str(datetime.date.today().year)                          # 追加
+        default_idx = available_years.index(current_year) if current_year in available_years else 0  # 追加
+        selected_year = st.selectbox("年を選択", available_years, index=default_idx, key="month_year_select")  # 変更
         filtered = [r for r in month_stats if r["month"][:4] == selected_year]
         st.table([{"年月": r["month"], "回数": r["count"]} for r in filtered])
 
@@ -234,11 +236,16 @@ def main():
         available_years = sorted(set(r["month"][:4] for r in store_month_stats), reverse=True)
         available_months = [f"{m:02d}" for m in range(1, 13)]
 
+        current_year = str(datetime.date.today().year)                                      # 追加
+        current_month = f"{datetime.date.today().month:02d}"                                # 追加
+        default_year_idx = available_years.index(current_year) if current_year in available_years else 0  # 追加
+        default_month_idx = available_months.index(current_month)                           # 追加
+
         col1, col2 = st.columns(2)
         with col1:
-            selected_year = st.selectbox("年を選択", available_years, key="store_month_year_select")
+            selected_year = st.selectbox("年を選択", available_years, index=default_year_idx, key="store_month_year_select")  # 変更
         with col2:
-            selected_month = st.selectbox("月を選択", available_months, key="store_month_month_select")
+            selected_month = st.selectbox("月を選択", available_months, index=default_month_idx, key="store_month_month_select")  # 変更
 
         target = f"{selected_year}-{selected_month}"
         filtered_stats = sorted([r for r in store_month_stats if r["month"] == target], key=lambda r: r["count"], reverse=True)
