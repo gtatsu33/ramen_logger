@@ -268,7 +268,7 @@ def main():
         st.table([{"お店と年": k, "回数": v} for k, v in grouped.items()])
         
     if store_month_stats:
-        st.write("### お店別・月別の来店回数")
+        st.write("### 月別の履歴")
         available_years = sorted(set(r["month"][:4] for r in store_month_stats), reverse=True)
         available_months = [f"{m:02d}" for m in range(1, 13)]
 
@@ -360,13 +360,14 @@ def main():
                     )
                 else:
                     img_html += '<div class="tile" style="background:#f0f0f0;display:flex;align-items:center;justify-content:center;color:#999;">📷</div>'
-            
             import streamlit.components.v1 as components
+            tile_height = (len(photo_entries) // 4 + 1) * 220
+            modal_height = 600
             components.html(
                 f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;">'
                 f'{img_html}'
                 f'</div>',
-                height=((len(photo_entries) // 4 + 1) * 220) + 400,
+                height=max(tile_height, modal_height),
                 scrolling=False
             )
 
