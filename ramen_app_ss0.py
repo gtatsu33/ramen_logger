@@ -85,13 +85,35 @@ def crop_square(url: str) -> bytes:
     return buf.getvalue()
 
 def upload_photo(file_bytes: bytes, original_name: str) -> str:
-    file_bytes = compress_image(file_bytes)  # 圧縮・リサイズ
-    file_name = f"{uuid.uuid4().hex}.jpg"    # 常にJPEGで保存
+    # オリジナル（既存処理）
+    file_bytes = compress_image(file_bytes)
+    file_name = f"{uuid.uuid4().hex}.jpg"
     get_supabase().storage.from_(BUCKET_NAME).upload(
         file_name, file_bytes, {"content-type": "image/jpeg"}
     )
-    return get_supabase().storage.from_(BUCKET_NAME).get_public_url(file_name)
+    original_url = get_supabase().storage.from_(BUCKET_NAME).get_public_url(file_name)
 
+    # サムネイル生成（正方形クロップ＋小さいサイズ）
+    thumb_bytes = make_thumbnail(file_bytes)
+    thumb_name = f"thumb_{file_name}"
+    get_supabase().storage.from_(BUCKET_NAME).upload(
+        thumb_name, thumb_bytes, {"content-type": "image/jpeg"}
+    )
+    thumb_url = get_supabase().storage.from_(BUCKET_NAME).get_public_url(thumb_name)
+
+    return original_url, thumb_url
+
+def make_thumbnail(file_bytes: bytes, size: int = 300) -> bytes:
+    img = Image.open(io.BytesIO(file_bytes))
+    w, h = img.size
+    crop_size = min(w, h)
+    left = (w - crop_size) // 2
+    top = (h - crop_size) // 2
+    img = img.crop((left, top, left + crop_size, top + crop_size))
+    img = img.resize((size, size), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=75)
+    return buf.getvalue()
 
 def stats_by_year(entries):
     counter = Counter(e["date"][:4] for e in entries)
@@ -270,23 +292,84 @@ def main():
             photo_entries = [e for stat in filtered_stats
                                for e in entries
                                if e["stores"]["name"] == stat["store_name"] and e["date"][:7] == stat["month"]]
-            cols_per_row = 4
-            rows = [photo_entries[i:i+cols_per_row] for i in range(0, len(photo_entries), cols_per_row)]
+            img_html = """
+            <style>
+            .tile { aspect-ratio:1/1; overflow:hidden; cursor:pointer; }
+            .tile img { width:100%; height:100%; object-fit:cover; display:block; transition:opacity 0.2s; }
+            .tile:hover img { opacity:0.85; }
+            .rl-modal-bg {
+                display:none; position:fixed; inset:0;
+                background:rgba(0,0,0,0.7); z-index:9999;
+                align-items:center; justify-content:center;
+            }
+            .rl-modal-bg.active { display:flex; }
+            .rl-modal {
+                background:#fff; border-radius:12px; overflow:hidden;
+                max-width:360px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.4);
+            }
+            .rl-modal img { width:100%; aspect-ratio:1/1; object-fit:cover; display:block; }
+            .rl-modal .info { padding:12px 16px; font-size:0.9em; line-height:1.8; }
+            .rl-modal .info .ramen-name { font-size:1.1em; font-weight:bold; margin-bottom:4px; }
+            .rl-modal .close-btn {
+                display:block; width:100%; padding:10px;
+                background:#f0f0f0; border:none; cursor:pointer;
+                font-size:0.9em; color:#333;
+            }
+            .rl-modal .close-btn:hover { background:#e0e0e0; }
+            </style>
+            <div class="rl-modal-bg" id="rlModalBg" onclick="if(event.target===this)closeModal()">
+                <div class="rl-modal">
+                    <img id="rlModalImg" src="">
+                    <div class="info">
+                        <div class="ramen-name" id="rlModalRamen"></div>
+                        <div id="rlModalDate"></div>
+                        <div id="rlModalStore"></div>
+                        <div id="rlModalComment"></div>
+                    </div>
+                    <button class="close-btn" onclick="closeModal()">閉じる</button>
+                </div>
+            </div>
+            <script>
+            function openModal(src, date, store, ramen, comment) {
+                document.getElementById('rlModalImg').src = src;
+                document.getElementById('rlModalDate').textContent = '📅 ' + date;
+                document.getElementById('rlModalStore').textContent = '📍 ' + store;
+                document.getElementById('rlModalRamen').textContent = '🍜 ' + ramen;
+                var c = document.getElementById('rlModalComment');
+                c.textContent = comment ? '💬 ' + comment : '';
+                document.getElementById('rlModalBg').classList.add('active');
+            }
+            function closeModal() {
+                document.getElementById('rlModalBg').classList.remove('active');
+            }
+            </script>
+            """
+            for entry in photo_entries:
+                store_info = entry.get("stores", {}) or {}
+                store = store_info.get("name", "").replace("'", "\\'")
+                date = entry.get("date", "").replace("'", "\\'")
+                ramen = entry.get("ramen_name", "").replace("'", "\\'")
+                comment = (entry.get("comment") or "").replace("'", "\\'")
+                src = entry.get("thumbnail_path") or entry.get("photo_path") or ""
+                full_src = entry.get("photo_path") or src
+
+                if src:
+                    img_html += (
+                        f'<div class="tile" onclick="openModal(\'{full_src}\',\'{date}\',\'{store}\',\'{ramen}\',\'{comment}\')">'
+                        f'<img src="{src}"></div>'
+                    )
+                else:
+                    img_html += '<div class="tile" style="background:#f0f0f0;display:flex;align-items:center;justify-content:center;color:#999;">📷</div>'
             
-            for row in rows:
-                cols = st.columns(cols_per_row)
-                for col, entry in zip(cols, row):
-                    with col:
-                        if entry.get("photo_path"):
-                            img_bytes = crop_square(entry["photo_path"])
-                            st.image(img_bytes, width='stretch')
-                        else:
-                            st.markdown(
-                                "<div style='border:1px solid #ddd;border-radius:8px;"
-                                "padding:30px;text-align:center;color:#999;'>"
-                                "📷</div>",
-                                unsafe_allow_html=True
-                            )
+            import streamlit.components.v1 as components
+            components.html(
+                f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;">'
+                f'{img_html}'
+                f'</div>',
+                height=((len(photo_entries) // 4 + 1) * 220) + 400,
+                scrolling=False
+            )
+
     st.markdown("---")
     st.subheader("登録済みのお店")
     if stores:
