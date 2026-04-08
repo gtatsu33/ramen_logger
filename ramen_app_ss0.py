@@ -105,6 +105,7 @@ def upload_photo(file_bytes: bytes, original_name: str) -> str:
 
 def make_thumbnail(file_bytes: bytes, size: int = 300) -> bytes:
     img = Image.open(io.BytesIO(file_bytes))
+    img = ImageOps.exif_transpose(img)  # スマホ写真の回転補正
     w, h = img.size
     crop_size = min(w, h)
     left = (w - crop_size) // 2
@@ -289,9 +290,13 @@ def main():
         if not filtered_stats:
             st.info("該当する記録がありません。")
         else:
-            photo_entries = [e for stat in filtered_stats
-                               for e in entries
-                               if e["stores"]["name"] == stat["store_name"] and e["date"][:7] == stat["month"]]
+            photo_entries = sorted(
+                [e for stat in filtered_stats
+                   for e in entries
+                   if e["stores"]["name"] == stat["store_name"] and e["date"][:7] == stat["month"]],
+                key=lambda e: e["date"]
+            )
+
             img_html = """
             <style>
             .tile { aspect-ratio:1/1; overflow:hidden; cursor:pointer; }
