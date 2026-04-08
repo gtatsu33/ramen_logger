@@ -85,13 +85,35 @@ def crop_square(url: str) -> bytes:
     return buf.getvalue()
 
 def upload_photo(file_bytes: bytes, original_name: str) -> str:
-    file_bytes = compress_image(file_bytes)  # 圧縮・リサイズ
-    file_name = f"{uuid.uuid4().hex}.jpg"    # 常にJPEGで保存
+    # オリジナル（既存処理）
+    file_bytes = compress_image(file_bytes)
+    file_name = f"{uuid.uuid4().hex}.jpg"
     get_supabase().storage.from_(BUCKET_NAME).upload(
         file_name, file_bytes, {"content-type": "image/jpeg"}
     )
-    return get_supabase().storage.from_(BUCKET_NAME).get_public_url(file_name)
+    original_url = get_supabase().storage.from_(BUCKET_NAME).get_public_url(file_name)
 
+    # サムネイル生成（正方形クロップ＋小さいサイズ）
+    thumb_bytes = make_thumbnail(file_bytes)
+    thumb_name = f"thumb_{file_name}"
+    get_supabase().storage.from_(BUCKET_NAME).upload(
+        thumb_name, thumb_bytes, {"content-type": "image/jpeg"}
+    )
+    thumb_url = get_supabase().storage.from_(BUCKET_NAME).get_public_url(thumb_name)
+
+    return original_url, thumb_url
+
+def make_thumbnail(file_bytes: bytes, size: int = 300) -> bytes:
+    img = Image.open(io.BytesIO(file_bytes))
+    w, h = img.size
+    crop_size = min(w, h)
+    left = (w - crop_size) // 2
+    top = (h - crop_size) // 2
+    img = img.crop((left, top, left + crop_size, top + crop_size))
+    img = img.resize((size, size), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=75)
+    return buf.getvalue()
 
 def stats_by_year(entries):
     counter = Counter(e["date"][:4] for e in entries)
@@ -270,15 +292,40 @@ def main():
             photo_entries = [e for stat in filtered_stats
                                for e in entries
                                if e["stores"]["name"] == stat["store_name"] and e["date"][:7] == stat["month"]]
-            import base64
-            img_html = ""
+            img_html = """
+            <style>
+            .tile { position:relative; overflow:hidden; aspect-ratio:1/1; }
+            .tile img { width:100%; height:100%; object-fit:cover; display:block; }
+            .tile .overlay {
+                position:absolute; inset:0;
+                background:rgba(0,0,0,0.65);
+                color:#fff; font-size:0.78em; line-height:1.5;
+                padding:8px;
+                opacity:0; transition:opacity 0.2s;
+                display:flex; align-items:center; justify-content:center;
+                text-align:center;
+            }
+            .tile:hover .overlay { opacity:1; }
+            </style>
+            """
             for entry in photo_entries:
-                if entry.get("photo_path"):
-                    img_bytes = crop_square(entry["photo_path"])
-                    b64 = base64.b64encode(img_bytes).decode()
-                    img_html += f'<img src="data:image/jpeg;base64,{b64}" style="width:100%;aspect-ratio:1/1;object-fit:cover;">'
+                store_info = entry.get("stores", {}) or {}
+                store = store_info.get("name", "")
+                date = entry.get("date", "")
+                ramen = entry.get("ramen_name", "")
+                comment = entry.get("comment", "")
+                caption = f"{date}<br>{store}<br>{ramen}"
+                if comment:
+                    caption += f"<br>{comment}"
+
+                if entry.get("thumbnail_path"):
+                    src = entry["thumbnail_path"]
+                    img_html += f'<div class="tile"><img src="{src}"><div class="overlay">{caption}</div></div>'
+                elif entry.get("photo_path"):
+                    src = entry["photo_path"]
+                    img_html += f'<div class="tile"><img src="{src}"><div class="overlay">{caption}</div></div>'
                 else:
-                    img_html += '<div style="aspect-ratio:1/1;background:#f0f0f0;display:flex;align-items:center;justify-content:center;color:#999;">📷</div>'
+                    img_html += f'<div class="tile" style="background:#f0f0f0;display:flex;align-items:center;justify-content:center;color:#999;"><div class="overlay">{caption}</div>📷</div>'            
 
             st.markdown(
                 f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;">'
