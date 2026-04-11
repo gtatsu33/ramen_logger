@@ -35,7 +35,7 @@ def insert_store(name: str, latitude: float | None, longitude: float | None) -> 
     return res.data[0]["id"]
 
 
-def insert_entry(date: str, store_id: int, ramen_name: str, score: int, comment: str, photo_url: str | None):
+def insert_entry(date, store_id, ramen_name, score, comment, photo_url, thumb_url=None):
     get_supabase().table("entries").insert({
         "date": date,
         "store_id": store_id,
@@ -43,9 +43,9 @@ def insert_entry(date: str, store_id: int, ramen_name: str, score: int, comment:
         "score": score,
         "comment": comment.strip() if comment else "",
         "photo_path": photo_url,
+        "thumbnail_path": thumb_url,   # 追加
         "created_at": datetime.datetime.now().isoformat(),
     }).execute()
-
 
 def fetch_entries():
     res = (
@@ -206,9 +206,9 @@ def main():
 
                 photo_url = None
                 if photo is not None:
-                    photo_url = upload_photo(photo.read(), photo.name)
+                    photo_url, thumb_url = upload_photo(photo.read(), photo.name)
 
-                insert_entry(visit_date.isoformat(), store_id, ramen_name, score, comment, photo_url)
+                insert_entry(visit_date.isoformat(), store_id, ramen_name, score, comment, photo_url, thumb_url)
                 st.success("記録を保存しました！")
                 st.rerun()
 
