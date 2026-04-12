@@ -7,7 +7,7 @@ import streamlit as st
 from supabase import create_client, Client
 import folium
 from streamlit_folium import st_folium
-
+import streamlit.components.v1 as components
 
 
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
@@ -210,10 +210,18 @@ def main():
 
                 insert_entry(visit_date.isoformat(), store_id, ramen_name, score, comment, photo_url, thumb_url)
                 st.success("記録を保存しました！")
-                st.rerun()
+                st.session_state["do_reload"] = True
+#                components.html("<script>window.location.reload();</script>", height=0)
+#                st.rerun()
 
 #    st.markdown("---")
 #    st.subheader("最新の記録")
+
+    if st.session_state.get("do_reload"):
+        st.session_state["do_reload"] = False
+        components.html("<script>window.parent.location.reload();</script>", height=0)
+        st.stop()
+
     entries = fetch_entries()
 
 #    if not entries:
@@ -365,7 +373,6 @@ def main():
                     )
                 else:
                     img_html += '<div class="tile" style="background:#f0f0f0;display:flex;align-items:center;justify-content:center;color:#999;">📷</div>'
-            import streamlit.components.v1 as components
             tile_height = (len(photo_entries) // 4 + 1) * 220
             modal_height = 600
             components.html(
