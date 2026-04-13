@@ -252,161 +252,167 @@ def main():
     store_year_stats = stats_by_store_year(entries)
     store_month_stats = stats_by_store_month(entries)
 
-    if year_stats:
-        st.write("### 年別の来店回数")
-        st.table([{"年": r["year"], "回数": r["count"]} for r in year_stats])
-#        st.bar_chart({r["year"]: r["count"] for r in year_stats})
-    else:
-        st.info("年別統計はまだありません。")
+    tab_year_month, tab_store = st.tabs(["年・月別", "店舗別"])
 
-    if month_stats:
-        st.write("### 月別の来店回数")
-        available_years = sorted(set(r["month"][:4] for r in month_stats), reverse=True)
-        current_year = str(datetime.date.today().year)                          # 追加
-        default_idx = available_years.index(current_year) if current_year in available_years else 0  # 追加
-        selected_year = st.selectbox("年を選択", available_years, index=default_idx, key="month_year_select")  # 変更
-        filtered = [r for r in month_stats if r["month"][:4] == selected_year]
-        st.table([{"年月": r["month"], "回数": r["count"]} for r in filtered])
-
-    if store_year_stats:
-        st.write("### お店別・年別の来店回数")
-        available_years = sorted(set(r["year"] for r in store_year_stats), reverse=True)
-        selected_year = st.selectbox("年を選択", available_years, key="store_year_select")
-        filtered = sorted([r for r in store_year_stats if r["year"] == selected_year], key=lambda r: r["count"], reverse=True)
-        grouped = {f"{r['store_name']} ({r['year']})": r["count"] for r in filtered}
-        st.table([{"お店と年": k, "回数": v} for k, v in grouped.items()])
-        
-    if store_month_stats:
-        st.write("### 月別の履歴")
-        available_years = sorted(set(r["month"][:4] for r in store_month_stats), reverse=True)
-        available_months = [f"{m:02d}" for m in range(1, 13)]
-
-        current_year = str(datetime.date.today().year)                                      # 追加
-        current_month = f"{datetime.date.today().month:02d}"                                # 追加
-        default_year_idx = available_years.index(current_year) if current_year in available_years else 0  # 追加
-        default_month_idx = available_months.index(current_month)                           # 追加
-
-        col1, col2 = st.columns(2)
-        with col1:
-            selected_year = st.selectbox("年を選択", available_years, index=default_year_idx, key="store_month_year_select")  # 変更
-        with col2:
-            selected_month = st.selectbox("月を選択", available_months, index=default_month_idx, key="store_month_month_select")  # 変更
-
-        target = f"{selected_year}-{selected_month}"
-        filtered_stats = sorted([r for r in store_month_stats if r["month"] == target], key=lambda r: r["count"], reverse=True)
-
-        if not filtered_stats:
-            st.info("該当する記録がありません。")
+    with tab_year_month:
+        if year_stats:
+            st.write("### 年別の来店回数")
+            st.table([{"年": r["year"], "回数": r["count"]} for r in year_stats])
+#            st.bar_chart({r["year"]: r["count"] for r in year_stats})
         else:
-            photo_entries = sorted(
-                [e for stat in filtered_stats
-                   for e in entries
-                   if e["stores"]["name"] == stat["store_name"] and e["date"][:7] == stat["month"]],
-                key=lambda e: e["date"]
-            )
+            st.info("年別統計はまだありません。")
 
-            img_html = """
-            <style>
-            .tile { aspect-ratio:1/1; overflow:hidden; cursor:pointer; }
-            .tile img { width:100%; height:100%; object-fit:cover; display:block; transition:opacity 0.2s; }
-            .tile:hover img { opacity:0.85; }
-            .rl-modal-bg {
-                display:none; position:fixed; inset:0;
-                background:rgba(0,0,0,0.7); z-index:9999;
-                align-items:center; justify-content:center;
-            }
-            .rl-modal-bg.active { display:flex; }
-            .rl-modal {
-                background:#fff; border-radius:12px; overflow:hidden;
-                max-width:360px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.4);
-            }
-            .rl-modal img { width:100%; aspect-ratio:1/1; object-fit:cover; display:block; }
-            .rl-modal .info { padding:12px 16px; font-size:0.9em; line-height:1.8; }
-            .rl-modal .info .ramen-name { font-size:1.1em; font-weight:bold; margin-bottom:4px; }
-            .rl-modal .close-btn {
-                display:block; width:100%; padding:10px;
-                background:#f0f0f0; border:none; cursor:pointer;
-                font-size:0.9em; color:#333;
-            }
-            .rl-modal .close-btn:hover { background:#e0e0e0; }
-            </style>
-            <div class="rl-modal-bg" id="rlModalBg" onclick="if(event.target===this)closeModal()">
-                <div class="rl-modal">
-                    <img id="rlModalImg" src="">
-                    <div class="info">
-                        <div class="ramen-name" id="rlModalRamen"></div>
-                        <div id="rlModalDate"></div>
-                        <div id="rlModalStore"></div>
-                        <div id="rlModalComment"></div>
+        if month_stats:
+            st.write("### 月別の来店回数")
+            available_years = sorted(set(r["month"][:4] for r in month_stats), reverse=True)
+            current_year = str(datetime.date.today().year)
+            default_idx = available_years.index(current_year) if current_year in available_years else 0
+            selected_year = st.selectbox("年を選択", available_years, index=default_idx, key="month_year_select")
+            filtered = [r for r in month_stats if r["month"][:4] == selected_year]
+            st.table([{"年月": r["month"], "回数": r["count"]} for r in filtered])
+        else:
+            st.info("月別統計はまだありません。")
+
+        if store_month_stats:
+            available_years = sorted(set(r["month"][:4] for r in store_month_stats), reverse=True)
+            available_months = [f"{m:02d}" for m in range(1, 13)]
+            current_year = str(datetime.date.today().year)
+            current_month = f"{datetime.date.today().month:02d}"
+            default_year_idx = available_years.index(current_year) if current_year in available_years else 0
+            default_month_idx = available_months.index(current_month)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                selected_year = st.selectbox("年を選択", available_years, index=default_year_idx, key="store_month_year_select")
+            with col2:
+                selected_month = st.selectbox("月を選択", available_months, index=default_month_idx, key="store_month_month_select")
+
+            target = f"{selected_year}-{selected_month}"
+            filtered_stats = sorted([r for r in store_month_stats if r["month"] == target], key=lambda r: r["count"], reverse=True)
+
+            if not filtered_stats:
+                st.info("該当する記録がありません。")
+            else:
+                photo_entries = sorted(
+                    [e for stat in filtered_stats
+                       for e in entries
+                       if e["stores"]["name"] == stat["store_name"] and e["date"][:7] == stat["month"]],
+                    key=lambda e: e["date"]
+                )
+
+                img_html = """
+                <style>
+                .tile { aspect-ratio:1/1; overflow:hidden; cursor:pointer; }
+                .tile img { width:100%; height:100%; object-fit:cover; display:block; transition:opacity 0.2s; }
+                .tile:hover img { opacity:0.85; }
+                .rl-modal-bg {
+                    display:none; position:fixed; inset:0;
+                    background:rgba(0,0,0,0.7); z-index:9999;
+                    align-items:center; justify-content:center;
+                }
+                .rl-modal-bg.active { display:flex; }
+                .rl-modal {
+                    background:#fff; border-radius:12px; overflow:hidden;
+                    max-width:360px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.4);
+                }
+                .rl-modal img { width:100%; aspect-ratio:1/1; object-fit:cover; display:block; }
+                .rl-modal .info { padding:12px 16px; font-size:0.9em; line-height:1.8; }
+                .rl-modal .info .ramen-name { font-size:1.1em; font-weight:bold; margin-bottom:4px; }
+                .rl-modal .close-btn {
+                    display:block; width:100%; padding:10px;
+                    background:#f0f0f0; border:none; cursor:pointer;
+                    font-size:0.9em; color:#333;
+                }
+                .rl-modal .close-btn:hover { background:#e0e0e0; }
+                </style>
+                <div class="rl-modal-bg" id="rlModalBg" onclick="if(event.target===this)closeModal()">
+                    <div class="rl-modal">
+                        <img id="rlModalImg" src="">
+                        <div class="info">
+                            <div class="ramen-name" id="rlModalRamen"></div>
+                            <div id="rlModalDate"></div>
+                            <div id="rlModalStore"></div>
+                            <div id="rlModalComment"></div>
+                        </div>
+                        <button class="close-btn" onclick="closeModal()">閉じる</button>
                     </div>
-                    <button class="close-btn" onclick="closeModal()">閉じる</button>
                 </div>
-            </div>
-            <script>
-            function openModal(src, date, store, ramen, comment) {
-                document.getElementById('rlModalImg').src = src;
-                document.getElementById('rlModalDate').textContent = '📅 ' + date;
-                document.getElementById('rlModalStore').textContent = '📍 ' + store;
-                document.getElementById('rlModalRamen').textContent = '🍜 ' + ramen;
-                var c = document.getElementById('rlModalComment');
-                c.textContent = comment ? '💬 ' + comment : '';
-                document.getElementById('rlModalBg').classList.add('active');
-            }
-            function closeModal() {
-                document.getElementById('rlModalBg').classList.remove('active');
-            }
-            </script>
-            """
-            for entry in photo_entries:
-                store_info = entry.get("stores", {}) or {}
-                store = store_info.get("name", "").replace("'", "\\'")
-                date = entry.get("date", "").replace("'", "\\'")
-                ramen = entry.get("ramen_name", "").replace("'", "\\'")
-                comment = (entry.get("comment") or "").replace("'", "\\'")
-                src = entry.get("thumbnail_path") or entry.get("photo_path") or ""
-                full_src = entry.get("photo_path") or src
+                <script>
+                function openModal(src, date, store, ramen, comment) {
+                    document.getElementById('rlModalImg').src = src;
+                    document.getElementById('rlModalDate').textContent = '📅 ' + date;
+                    document.getElementById('rlModalStore').textContent = '📍 ' + store;
+                    document.getElementById('rlModalRamen').textContent = '🍜 ' + ramen;
+                    var c = document.getElementById('rlModalComment');
+                    c.textContent = comment ? '💬 ' + comment : '';
+                    document.getElementById('rlModalBg').classList.add('active');
+                }
+                function closeModal() {
+                    document.getElementById('rlModalBg').classList.remove('active');
+                }
+                </script>
+                """
+                for entry in photo_entries:
+                    store_info = entry.get("stores", {}) or {}
+                    store = store_info.get("name", "").replace("'", "\\'")
+                    date = entry.get("date", "").replace("'", "\\'")
+                    ramen = entry.get("ramen_name", "").replace("'", "\\'")
+                    comment = (entry.get("comment") or "").replace("'", "\\'")
+                    src = entry.get("thumbnail_path") or entry.get("photo_path") or ""
+                    full_src = entry.get("photo_path") or src
 
-                if src:
-                    img_html += (
-                        f'<div class="tile" onclick="openModal(\'{full_src}\',\'{date}\',\'{store}\',\'{ramen}\',\'{comment}\')">'
-                        f'<img src="{src}"></div>'
-                    )
-                else:
-                    img_html += '<div class="tile" style="background:#f0f0f0;display:flex;align-items:center;justify-content:center;color:#999;">📷</div>'
-            tile_height = (len(photo_entries) // 4 + 1) * 220
-            modal_height = 600
-            components.html(
-                f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;">'
-                f'{img_html}'
-                f'</div>',
-                height=max(tile_height, modal_height),
-                scrolling=False
-            )
+                    if src:
+                        img_html += (
+                            f'<div class="tile" onclick="openModal(\'{full_src}\',\'{date}\',\'{store}\',\'{ramen}\',\'{comment}\')">'
+                            f'<img src="{src}"></div>'
+                        )
+                    else:
+                        img_html += '<div class="tile" style="background:#f0f0f0;display:flex;align-items:center;justify-content:center;color:#999;">📷</div>'
+                tile_height = (len(photo_entries) // 4 + 1) * 220
+                modal_height = 600
+                components.html(
+                    f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;">'
+                    f'{img_html}'
+                    f'</div>',
+                    height=max(tile_height, modal_height),
+                    scrolling=False
+                )
+        else:
+            st.info("月別の履歴はまだありません。")
 
-    st.markdown("---")
-    st.subheader("登録済みのお店")
-    if stores:
-        # お店の場所を地図に表示
-        if any(s['latitude'] and s['longitude'] for s in stores):
-            st.write("### 🗺️ お店の場所")
-            # 地図の中心を最初の店舗の位置にする、またはデフォルト
-            center_lat = stores[0]['latitude'] if stores[0]['latitude'] else 35.681236
-            center_lon = stores[0]['longitude'] if stores[0]['longitude'] else 139.767125
+    with tab_store:
+        if store_year_stats:
+            st.write("### お店別・年別の来店回数")
+            available_years = sorted(set(r["year"] for r in store_year_stats), reverse=True)
+            selected_year = st.selectbox("年を選択", available_years, key="store_year_select")
+            filtered = sorted([r for r in store_year_stats if r["year"] == selected_year], key=lambda r: r["count"], reverse=True)
+            st.table([{"お店と年": f"{r['store_name']} ({r['year']})", "回数": r["count"]} for r in filtered])
+        else:
+            st.info("お店別・年別の統計はまだありません。")
 
-            m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
+        st.write("### 登録済みのお店")
+        if stores:
+            if any(s['latitude'] and s['longitude'] for s in stores):
+                st.write("### 🗺️ お店の場所")
+                center_lat = stores[0]['latitude'] if stores[0]['latitude'] else 35.681236
+                center_lon = stores[0]['longitude'] if stores[0]['longitude'] else 139.767125
 
-            for store in stores:
-                if store['latitude'] and store['longitude']:
-                    folium.Marker(
-                        location=[store['latitude'], store['longitude']],
-                        popup=f"<b>{store['name']}</b><br>GPS: {store['latitude']}, {store['longitude']}",
-                        tooltip=store['name']
-                    ).add_to(m)
+                m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
 
-            st_folium(m, height=400, width=700)
+                for store in stores:
+                    if store['latitude'] and store['longitude']:
+                        folium.Marker(
+                            location=[store['latitude'], store['longitude']],
+                            popup=f"<b>{store['name']}</b><br>GPS: {store['latitude']}, {store['longitude']}",
+                            tooltip=store['name']
+                        ).add_to(m)
 
-    else:
-        st.info("まだお店が登録されていません。記録登録で追加できます。")
+                st_folium(m, height=400, width=700)
+            else:
+                st.table([{"お店": s['name']} for s in stores])
+        else:
+            st.info("まだお店が登録されていません。記録登録で追加できます。")
+
 
 
 if __name__ == "__main__":
