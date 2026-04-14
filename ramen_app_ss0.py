@@ -177,17 +177,19 @@ def render_photo_tiles(photo_entries):
                 <div class="ramen-name" id="rlModalRamen"></div>
                 <div id="rlModalDate"></div>
                 <div id="rlModalStore"></div>
+                <div id="rlModalScore"></div>
                 <div id="rlModalComment"></div>
             </div>
             <button class="close-btn" onclick="closeModal()">閉じる</button>
         </div>
     </div>
     <script>
-    function openModal(src, date, store, ramen, comment) {
+    function openModal(src, date, store, ramen, score, comment) {
         document.getElementById('rlModalImg').src = src;
         document.getElementById('rlModalDate').textContent = '📅 ' + date;
         document.getElementById('rlModalStore').textContent = '📍 ' + store;
         document.getElementById('rlModalRamen').textContent = '🍜 ' + ramen;
+        document.getElementById('rlModalScore').textContent = '⭐ ' + score + '点';
         var c = document.getElementById('rlModalComment');
         c.textContent = comment ? '💬 ' + comment : '';
         document.getElementById('rlModalBg').classList.add('active');
@@ -203,12 +205,13 @@ def render_photo_tiles(photo_entries):
         store = escape_js(store_info.get("name", ""))
         date = escape_js(entry.get("date", ""))
         ramen = escape_js(entry.get("ramen_name", ""))
+        score = entry.get("score", "")
         comment = escape_js(entry.get("comment") or "")
         src = entry.get("thumbnail_path") or entry.get("photo_path") or ""
         full_src = entry.get("photo_path") or src
         if src:
             img_html += (
-                f'<div class="tile" onclick="openModal(\'{full_src}\',\'{date}\',\'{store}\',\'{ramen}\',\'{comment}\')">'
+                f'<div class="tile" onclick="openModal(\'{full_src}\',\'{date}\',\'{store}\',\'{ramen}\',\'{score}\',\'{comment}\')">'
                 f'<img src="{src}"></div>'
             )
         else:
@@ -383,7 +386,8 @@ def main():
                     [e for stat in filtered_stats
                        for e in entries
                        if e["stores"]["name"] == stat["store_name"] and e["date"][:7] == stat["month"]],
-                    key=lambda e: e["date"]
+                    key=lambda e: e["date"],
+                    reverse=True,
                 )
 
                 img_html = """
@@ -418,17 +422,19 @@ def main():
                             <div class="ramen-name" id="rlModalRamen"></div>
                             <div id="rlModalDate"></div>
                             <div id="rlModalStore"></div>
+                            <div id="rlModalScore"></div>
                             <div id="rlModalComment"></div>
                         </div>
                         <button class="close-btn" onclick="closeModal()">閉じる</button>
                     </div>
                 </div>
                 <script>
-                function openModal(src, date, store, ramen, comment) {
+                function openModal(src, date, store, ramen, score, comment) {
                     document.getElementById('rlModalImg').src = src;
                     document.getElementById('rlModalDate').textContent = '📅 ' + date;
                     document.getElementById('rlModalStore').textContent = '📍 ' + store;
                     document.getElementById('rlModalRamen').textContent = '🍜 ' + ramen;
+                    document.getElementById('rlModalScore').textContent = '⭐ ' + score + '点';
                     var c = document.getElementById('rlModalComment');
                     c.textContent = comment ? '💬 ' + comment : '';
                     document.getElementById('rlModalBg').classList.add('active');
@@ -443,13 +449,14 @@ def main():
                     store = store_info.get("name", "").replace("'", "\\'")
                     date = entry.get("date", "").replace("'", "\\'")
                     ramen = entry.get("ramen_name", "").replace("'", "\\'")
+                    score = entry.get("score", "")
                     comment = (entry.get("comment") or "").replace("'", "\\'")
                     src = entry.get("thumbnail_path") or entry.get("photo_path") or ""
                     full_src = entry.get("photo_path") or src
 
                     if src:
                         img_html += (
-                            f'<div class="tile" onclick="openModal(\'{full_src}\',\'{date}\',\'{store}\',\'{ramen}\',\'{comment}\')">'
+                            f'<div class="tile" onclick="openModal(\'{full_src}\',\'{date}\',\'{store}\',\'{ramen}\',\'{score}\',\'{comment}\')">'
                             f'<img src="{src}"></div>'
                         )
                     else:
@@ -503,6 +510,7 @@ def main():
                         photo_entries = sorted(
                             [e for e in entries if e["stores"]["name"] == selected["store_name"] and e["date"][:4] == selected["year"]],
                             key=lambda e: e["date"],
+                            reverse=True,
                         )
                         render_photo_tiles(photo_entries)
         else:
