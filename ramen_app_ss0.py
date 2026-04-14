@@ -136,6 +136,92 @@ def stats_by_store_month(entries):
     return [{"store_name": k[0], "month": k[1], "count": v} for k, v in sorted(counter.items())]
 
 
+def escape_js(text: str) -> str:
+    return str(text).replace('\\', '\\\\').replace("'", "\\'").replace('"', '\\"').replace('\n', '\\n').replace('\r', '')
+
+
+def render_photo_tiles(photo_entries):
+    if not photo_entries:
+        st.info("該当する写真はありません。")
+        return
+
+    img_html = """
+    <style>
+    .tile { aspect-ratio:1/1; overflow:hidden; cursor:pointer; }
+    .tile img { width:100%; height:100%; object-fit:cover; display:block; transition:opacity 0.2s; }
+    .tile:hover img { opacity:0.85; }
+    .rl-modal-bg {
+        display:none; position:fixed; inset:0;
+        background:rgba(0,0,0,0.7); z-index:9999;
+        align-items:center; justify-content:center;
+    }
+    .rl-modal-bg.active { display:flex; }
+    .rl-modal {
+        background:#fff; border-radius:12px; overflow:hidden;
+        max-width:420px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.4);
+    }
+    .rl-modal img { width:100%; aspect-ratio:1/1; object-fit:cover; display:block; }
+    .rl-modal .info { padding:12px 16px; font-size:0.9em; line-height:1.8; }
+    .rl-modal .info .ramen-name { font-size:1.1em; font-weight:bold; margin-bottom:4px; }
+    .rl-modal .close-btn {
+        display:block; width:100%; padding:10px;
+        background:#f0f0f0; border:none; cursor:pointer;
+        font-size:0.9em; color:#333;
+    }
+    .rl-modal .close-btn:hover { background:#e0e0e0; }
+    </style>
+    <div class="rl-modal-bg" id="rlModalBg" onclick="if(event.target===this)closeModal()">
+        <div class="rl-modal">
+            <img id="rlModalImg" src="">
+            <div class="info">
+                <div class="ramen-name" id="rlModalRamen"></div>
+                <div id="rlModalDate"></div>
+                <div id="rlModalStore"></div>
+                <div id="rlModalComment"></div>
+            </div>
+            <button class="close-btn" onclick="closeModal()">閉じる</button>
+        </div>
+    </div>
+    <script>
+    function openModal(src, date, store, ramen, comment) {
+        document.getElementById('rlModalImg').src = src;
+        document.getElementById('rlModalDate').textContent = '📅 ' + date;
+        document.getElementById('rlModalStore').textContent = '📍 ' + store;
+        document.getElementById('rlModalRamen').textContent = '🍜 ' + ramen;
+        var c = document.getElementById('rlModalComment');
+        c.textContent = comment ? '💬 ' + comment : '';
+        document.getElementById('rlModalBg').classList.add('active');
+    }
+    function closeModal() {
+        document.getElementById('rlModalBg').classList.remove('active');
+    }
+    </script>
+    """
+
+    for entry in photo_entries:
+        store_info = entry.get("stores", {}) or {}
+        store = escape_js(store_info.get("name", ""))
+        date = escape_js(entry.get("date", ""))
+        ramen = escape_js(entry.get("ramen_name", ""))
+        comment = escape_js(entry.get("comment") or "")
+        src = entry.get("thumbnail_path") or entry.get("photo_path") or ""
+        full_src = entry.get("photo_path") or src
+        if src:
+            img_html += (
+                f'<div class="tile" onclick="openModal(\'{full_src}\',\'{date}\',\'{store}\',\'{ramen}\',\'{comment}\')">'
+                f'<img src="{src}"></div>'
+            )
+        else:
+            img_html += '<div class="tile" style="background:#f0f0f0;display:flex;align-items:center;justify-content:center;color:#999;">📷</div>'
+    tile_height = (len(photo_entries) // 4 + 1) * 220
+    modal_height = 600
+    components.html(
+        f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;">{img_html}</div>',
+        height=max(tile_height, modal_height),
+        scrolling=False,
+    )
+
+
 def main():
     st.set_page_config(page_title="ラーメンロガー", page_icon="images/rlicon.png",)
     st.markdown("<h2 style='margin-bottom:0'>🍜 ラーメンロガー</h2>", unsafe_allow_html=True)
@@ -386,7 +472,39 @@ def main():
             available_years = sorted(set(r["year"] for r in store_year_stats), reverse=True)
             selected_year = st.selectbox("年を選択", available_years, key="store_year_select")
             filtered = sorted([r for r in store_year_stats if r["year"] == selected_year], key=lambda r: r["count"], reverse=True)
-            st.table([{"お店と年": f"{r['store_name']} ({r['year']})", "回数": r["count"]} for r in filtered])
+
+            selected = st.session_state.get("selected_store_year")
+            if selected and selected.get("year") != selected_year:
+                st.session_state.pop("selected_store_year", None)
+                selected = None
+
+            for idx, row in enumerate(filtered):
+                with st.container():
+                    cols = st.columns([4, 1])
+                    clicked = cols[0].button(
+                        f"{row['store_name']} ({row['year']})",
+                        key=f"store_year_button_{selected_year}_{idx}",
+                    )
+                    cols[1].write(f"{row['count']}回")
+
+                    if clicked:
+                        if selected and selected["store_name"] == row["store_name"] and selected["year"] == row["year"]:
+                            st.session_state.pop("selected_store_year", None)
+                            selected = None
+                        else:
+                            st.session_state["selected_store_year"] = {
+                                "store_name": row["store_name"],
+                                "year": row["year"],
+                            }
+                            selected = st.session_state["selected_store_year"]
+
+                    if selected and selected["store_name"] == row["store_name"] and selected["year"] == row["year"]:
+                        st.markdown(f"**{selected['store_name']} ({selected['year']}) の写真**")
+                        photo_entries = sorted(
+                            [e for e in entries if e["stores"]["name"] == selected["store_name"] and e["date"][:4] == selected["year"]],
+                            key=lambda e: e["date"],
+                        )
+                        render_photo_tiles(photo_entries)
         else:
             st.info("お店別・年別の統計はまだありません。")
 
