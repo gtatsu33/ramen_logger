@@ -307,55 +307,31 @@ def main():
             selected_year = st.selectbox(
                 "年を選択", available_years, index=default_idx, key="month_year_select"
             )
-            filtered = [r for r in month_stats if r["month"][:4] == selected_year]
-            st.table([{"年月": r["month"], "回数": r["count"]} for r in filtered])
-        else:
-            st.info("月別統計はまだありません。")
-
-        if store_month_stats:
-            available_years = sorted(set(r["month"][:4] for r in store_month_stats), reverse=True)
-            available_months = [f"{m:02d}" for m in range(1, 13)]
-            current_year = str(datetime.date.today().year)
-            current_month = f"{datetime.date.today().month:02d}"
-            default_year_idx = (
-                available_years.index(current_year) if current_year in available_years else 0
-            )
-            default_month_idx = available_months.index(current_month)
-
-            col1, col2 = st.columns(2)
-            with col1:
-                selected_year = st.selectbox(
-                    "年を選択", available_years, index=default_year_idx, key="store_month_year_select"
-                )
-            with col2:
-                selected_month = st.selectbox(
-                    "月を選択", available_months, index=default_month_idx, key="store_month_month_select"
-                )
-
-            target = f"{selected_year}-{selected_month}"
-            filtered_stats = sorted(
-                [r for r in store_month_stats if r["month"] == target],
-                key=lambda r: r["count"],
+            # 選択された年の全エントリを取得（写真があるもののみ）
+            year_entries = sorted(
+                [e for e in entries if e["date"][:4] == selected_year and e.get("photo_path")],
+                key=lambda e: e["date"],
                 reverse=True,
             )
-
-            if not filtered_stats:
-                st.info("該当する記録がありません。")
+            if not year_entries:
+                st.info("該当する写真がありません。")
             else:
-                photo_entries = sorted(
-                    [
-                        e
-                        for stat in filtered_stats
-                        for e in entries
-                        if e["stores"]["name"] == stat["store_name"]
-                        and e["date"][:7] == stat["month"]
-                    ],
-                    key=lambda e: e["date"],
-                    reverse=True,
-                )
-                render_photo_tiles(photo_entries, key_prefix="month_tile")
+                # 月ごとにグループ化
+                from collections import defaultdict
+                monthly_entries = defaultdict(list)
+                for entry in year_entries:
+                    month = entry["date"][:7]  # YYYY-MM
+                    monthly_entries[month].append(entry)
+                
+                # 月を降順でソート
+                for month in sorted(monthly_entries.keys(), reverse=True):
+                    month_entries = monthly_entries[month]
+                    month_name = f"{int(month[5:]):d}月"  # MM を数値に変換して月
+                    count = len(month_entries)
+                    st.write(f"**{month_name} {count}件**")
+                    render_photo_tiles(month_entries, key_prefix=f"month_{month}")
         else:
-            st.info("月別の履歴はまだありません。")
+            st.info("月別統計はまだありません。")
 
     with tab_store:
         if store_year_stats:
@@ -368,52 +344,23 @@ def main():
                 reverse=True,
             )
 
-            selected = st.session_state.get("selected_store_year")
-            if selected and selected.get("year") != selected_year:
-                st.session_state.pop("selected_store_year", None)
-                selected = None
-
-            for idx, row in enumerate(filtered):
-                with st.container():
-                    cols = st.columns([4, 1])
-                    clicked = cols[0].button(
-                        f"{row['store_name']} ({row['year']})",
-                        key=f"store_year_button_{selected_year}_{idx}",
-                    )
-                    cols[1].write(f"{row['count']}回")
-
-                    if clicked:
-                        if (
-                            selected
-                            and selected["store_name"] == row["store_name"]
-                            and selected["year"] == row["year"]
-                        ):
-                            st.session_state.pop("selected_store_year", None)
-                            selected = None
-                        else:
-                            st.session_state["selected_store_year"] = {
-                                "store_name": row["store_name"],
-                                "year": row["year"],
-                            }
-                            selected = st.session_state["selected_store_year"]
-
-                    if (
-                        selected
-                        and selected["store_name"] == row["store_name"]
-                        and selected["year"] == row["year"]
-                    ):
-                        st.markdown(f"**{selected['store_name']} ({selected['year']}) の写真**")
-                        photo_entries = sorted(
-                            [
-                                e
-                                for e in entries
-                                if e["stores"]["name"] == selected["store_name"]
-                                and e["date"][:4] == selected["year"]
-                            ],
-                            key=lambda e: e["date"],
-                            reverse=True,
-                        )
-                        render_photo_tiles(photo_entries, key_prefix=f"store_tile_{idx}")
+            for row in filtered:
+                store_name = row["store_name"]
+                count = row["count"]
+                st.write(f"**{store_name} {count}件**")
+                photo_entries = sorted(
+                    [
+                        e
+                        for e in entries
+                        if e["stores"]["name"] == store_name
+                        and e["date"][:4] == selected_year
+                        and e.get("photo_path")
+                    ],
+                    key=lambda e: e["date"],
+                    reverse=True,
+                )
+                if photo_entries:
+                    render_photo_tiles(photo_entries, key_prefix=f"store_{store_name}_{selected_year}")
         else:
             st.info("お店別・年別の統計はまだありません。")
 
@@ -446,4 +393,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
