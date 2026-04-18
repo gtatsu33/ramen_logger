@@ -7,7 +7,7 @@ import streamlit as st
 from supabase import create_client, Client
 import folium
 from streamlit_folium import st_folium
-import streamlit.components.v1 as components
+from streamlit_image_coordinates import streamlit_image_coordinates
 
 
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
@@ -43,9 +43,10 @@ def insert_entry(date, store_id, ramen_name, score, comment, photo_url, thumb_ur
         "score": score,
         "comment": comment.strip() if comment else "",
         "photo_path": photo_url,
-        "thumbnail_path": thumb_url,   # 追加
+        "thumbnail_path": thumb_url,
         "created_at": datetime.datetime.now().isoformat(),
     }).execute()
+
 
 def fetch_entries():
     res = (
@@ -57,9 +58,10 @@ def fetch_entries():
     )
     return res.data
 
+
 def compress_image(file_bytes: bytes, max_size: int = 1280, quality: int = 80) -> bytes:
     img = Image.open(io.BytesIO(file_bytes))
-    img = ImageOps.exif_transpose(img)  # スマホ写真の回転補正
+    img = ImageOps.exif_transpose(img)
     if img.mode != "RGB":
         img = img.convert("RGB")
     w, h = img.size
@@ -70,22 +72,8 @@ def compress_image(file_bytes: bytes, max_size: int = 1280, quality: int = 80) -
     img.save(buf, format="JPEG", quality=quality)
     return buf.getvalue()
 
-def crop_square(url: str) -> bytes:
-    import requests
-    response = requests.get(url)
-    img = Image.open(io.BytesIO(response.content))
-    img = ImageOps.exif_transpose(img)
-    w, h = img.size
-    size = min(w, h)
-    left = (w - size) // 2
-    top = (h - size) // 2
-    img = img.crop((left, top, left + size, top + size))
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG")
-    return buf.getvalue()
 
 def upload_photo(file_bytes: bytes, original_name: str) -> str:
-    # オリジナル（既存処理）
     file_bytes = compress_image(file_bytes)
     file_name = f"{uuid.uuid4().hex}.jpg"
     get_supabase().storage.from_(BUCKET_NAME).upload(
@@ -93,7 +81,6 @@ def upload_photo(file_bytes: bytes, original_name: str) -> str:
     )
     original_url = get_supabase().storage.from_(BUCKET_NAME).get_public_url(file_name)
 
-    # サムネイル生成（正方形クロップ＋小さいサイズ）
     thumb_bytes = make_thumbnail(file_bytes)
     thumb_name = f"thumb_{file_name}"
     get_supabase().storage.from_(BUCKET_NAME).upload(
@@ -103,9 +90,10 @@ def upload_photo(file_bytes: bytes, original_name: str) -> str:
 
     return original_url, thumb_url
 
+
 def make_thumbnail(file_bytes: bytes, size: int = 300) -> bytes:
     img = Image.open(io.BytesIO(file_bytes))
-    img = ImageOps.exif_transpose(img)  # スマホ写真の回転補正
+    img = ImageOps.exif_transpose(img)
     w, h = img.size
     crop_size = min(w, h)
     left = (w - crop_size) // 2
@@ -115,6 +103,7 @@ def make_thumbnail(file_bytes: bytes, size: int = 300) -> bytes:
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=75)
     return buf.getvalue()
+
 
 def stats_by_year(entries):
     counter = Counter(e["date"][:4] for e in entries)
@@ -136,97 +125,86 @@ def stats_by_store_month(entries):
     return [{"store_name": k[0], "month": k[1], "count": v} for k, v in sorted(counter.items())]
 
 
-def escape_js(text: str) -> str:
-    return str(text).replace('\\', '\\\\').replace("'", "\\'").replace('"', '\\"').replace('\n', '\\n').replace('\r', '')
+# ─── モーダルダイアログ ────────────────────────────────────────────────────────
+@st.dialog("ラーメン詳細", width="large")
+def show_photo_modal():
+    entry = st.session_state.get("modal_entry")
+    if not entry:
+        return
+    store_info = entry.get("stores", {}) or {}
+
+    if entry.get("photo_path"):
+        st.image(entry["photo_path"], width="stretch")
+
+    st.markdown(f"### 🍜 {entry.get('ramen_name', '')}")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write(f"📅 {entry.get('date', '')}")
+        st.write(f"📍 {store_info.get('name', '')}")
+    with col2:
+        st.write(f"⭐ {entry.get('score', '')} 点")
+    if entry.get("comment"):
+        st.write(f"💬 {entry.get('comment')}")
+
+    if st.button("閉じる", use_container_width=True):
+        del st.session_state["modal_entry"]
+        st.rerun()
 
 
-def render_photo_tiles(photo_entries):
+# ─── 写真タイルグリッド ────────────────────────────────────────────────────────
+def render_photo_tiles(photo_entries, key_prefix: str = "tile"):
+    """
+    写真グリッドを描画する。クリックを検出したら session_state にフラグを立てるだけ。
+    ダイアログは main() の末尾で一度だけ開く。
+    """
     if not photo_entries:
         st.info("該当する写真はありません。")
         return
 
-    img_html = """
-    <style>
-    .tile { aspect-ratio:1/1; overflow:hidden; cursor:pointer; }
-    .tile img { width:100%; height:100%; object-fit:cover; display:block; transition:opacity 0.2s; }
-    .tile:hover img { opacity:0.85; }
-    .rl-modal-bg {
-        display:none; position:fixed; inset:0;
-        background:rgba(0,0,0,0.7); z-index:9999;
-        align-items:center; justify-content:center;
-    }
-    .rl-modal-bg.active { display:flex; }
-    .rl-modal {
-        background:#fff; border-radius:12px; overflow:hidden;
-        max-width:420px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.4);
-    }
-    .rl-modal img { width:100%; aspect-ratio:1/1; object-fit:cover; display:block; }
-    .rl-modal .info { padding:12px 16px; font-size:0.9em; line-height:1.8; }
-    .rl-modal .info .ramen-name { font-size:1.1em; font-weight:bold; margin-bottom:4px; }
-    .rl-modal .close-btn {
-        display:block; width:100%; padding:10px;
-        background:#f0f0f0; border:none; cursor:pointer;
-        font-size:0.9em; color:#333;
-    }
-    .rl-modal .close-btn:hover { background:#e0e0e0; }
-    </style>
-    <div class="rl-modal-bg" id="rlModalBg" onclick="if(event.target===this)closeModal()">
-        <div class="rl-modal">
-            <img id="rlModalImg" src="">
-            <div class="info">
-                <div class="ramen-name" id="rlModalRamen"></div>
-                <div id="rlModalDate"></div>
-                <div id="rlModalStore"></div>
-                <div id="rlModalScore"></div>
-                <div id="rlModalComment"></div>
-            </div>
-            <button class="close-btn" onclick="closeModal()">閉じる</button>
-        </div>
-    </div>
-    <script>
-    function openModal(src, date, store, ramen, score, comment) {
-        document.getElementById('rlModalImg').src = src;
-        document.getElementById('rlModalDate').textContent = '📅 ' + date;
-        document.getElementById('rlModalStore').textContent = '📍 ' + store;
-        document.getElementById('rlModalRamen').textContent = '🍜 ' + ramen;
-        document.getElementById('rlModalScore').textContent = '⭐ ' + score + '点';
-        var c = document.getElementById('rlModalComment');
-        c.textContent = comment ? '💬 ' + comment : '';
-        document.getElementById('rlModalBg').classList.add('active');
-    }
-    function closeModal() {
-        document.getElementById('rlModalBg').classList.remove('active');
-    }
-    </script>
-    """
-
-    for entry in photo_entries:
-        store_info = entry.get("stores", {}) or {}
-        store = escape_js(store_info.get("name", ""))
-        date = escape_js(entry.get("date", ""))
-        ramen = escape_js(entry.get("ramen_name", ""))
-        score = entry.get("score", "")
-        comment = escape_js(entry.get("comment") or "")
-        src = entry.get("thumbnail_path") or entry.get("photo_path") or ""
-        full_src = entry.get("photo_path") or src
-        if src:
-            img_html += (
-                f'<div class="tile" onclick="openModal(\'{full_src}\',\'{date}\',\'{store}\',\'{ramen}\',\'{score}\',\'{comment}\')">'
-                f'<img src="{src}"></div>'
-            )
-        else:
-            img_html += '<div class="tile" style="background:#f0f0f0;display:flex;align-items:center;justify-content:center;color:#999;">📷</div>'
-    tile_height = (len(photo_entries) // 4 + 1) * 220
-    modal_height = 600
-    components.html(
-        f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;">{img_html}</div>',
-        height=max(tile_height, modal_height),
-        scrolling=False,
+    st.markdown(
+        "<style>[data-testid='stImage'] img { cursor: pointer; }</style>",
+        unsafe_allow_html=True,
     )
 
+    COLS = 4
+    for row_start in range(0, len(photo_entries), COLS):
+        row_entries = photo_entries[row_start : row_start + COLS]
+        cols = st.columns(COLS)
+        for col_idx, entry in enumerate(row_entries):
+            with cols[col_idx]:
+                src = entry.get("thumbnail_path") or entry.get("photo_path") or ""
+                entry_id = entry.get("id", f"{row_start}_{col_idx}")
+                img_key = f"{key_prefix}_{entry_id}"
+                ts_key  = f"_seen_ts_{img_key}"
 
+                if src:
+                    clicked = streamlit_image_coordinates(
+                        src,
+                        key=img_key,
+                        use_column_width="always",
+                    )
+                    if clicked is not None:
+                        ts = clicked.get("timestamp", 0)
+                        if ts != st.session_state.get(ts_key):
+                            # 新しいクリック：タイムスタンプを記録してフラグを立てる
+                            st.session_state[ts_key] = ts
+                            # すでに別の画像がクリックされていた場合は上書き（最後が優先）
+                            st.session_state["modal_entry"] = entry
+                            st.session_state["_open_modal"] = True
+                else:
+                    st.markdown(
+                        "<div style='aspect-ratio:1/1;background:#f0f0f0;"
+                        "display:flex;align-items:center;justify-content:center;"
+                        "border-radius:4px;color:#aaa;font-size:1.5em;'>📷</div>",
+                        unsafe_allow_html=True,
+                    )
+
+
+# ─── メイン ───────────────────────────────────────────────────────────────────
 def main():
-    st.set_page_config(page_title="ラーメンロガー", page_icon="images/rlicon.png",)
+    import streamlit.components.v1 as components
+
+    st.set_page_config(page_title="ラーメンロガー", page_icon="images/rlicon.png")
     st.markdown("<h2 style='margin-bottom:0'>🍜 ラーメンロガー</h2>", unsafe_allow_html=True)
     st.caption("訪問日、写真、お店、ラーメン名、点数、コメントを登録して統計を確認できます。")
 
@@ -243,22 +221,14 @@ def main():
         st.subheader("📍 お店の場所を選択")
         st.write("地図をクリックして場所を選択してください。")
 
-        # デフォルトの地図中心（東京）
         default_lat, default_lon = 35.681236, 139.767125
-
-        # 地図を作成
         m = folium.Map(location=[default_lat, default_lon], zoom_start=15)
-
-        # クリックで位置を取得するためのプラグイン
         m.add_child(folium.LatLngPopup())
-
-        # Streamlitで地図を表示し、クリック位置を取得
         map_data = st_folium(m, height=400, width=700)
 
-        # クリックされた位置を取得
-        if map_data and 'last_clicked' in map_data and map_data['last_clicked']:
-            clicked_lat = map_data['last_clicked']['lat']
-            clicked_lng = map_data['last_clicked']['lng']
+        if map_data and "last_clicked" in map_data and map_data["last_clicked"]:
+            clicked_lat = map_data["last_clicked"]["lat"]
+            clicked_lng = map_data["last_clicked"]["lng"]
             st.success(f"選択された位置: 緯度 {clicked_lat:.6f}, 経度 {clicked_lng:.6f}")
             store_lat = clicked_lat
             store_lon = clicked_lng
@@ -279,7 +249,10 @@ def main():
         ramen_name = st.text_input("ラーメンの名前")
         score = st.slider("点数（5点満点）", min_value=1, max_value=5, value=4)
         comment = st.text_area("コメント")
-        photo = st.file_uploader("写真をアップロード（ファイルサイズが自動的に調整されます）", type=["png", "jpg", "jpeg"])
+        photo = st.file_uploader(
+            "写真をアップロード（ファイルサイズが自動的に調整されます）",
+            type=["png", "jpg", "jpeg"],
+        )
         submitted = st.form_submit_button("保存する")
 
         if submitted:
@@ -293,18 +266,15 @@ def main():
                 else:
                     store_id = stores[store_index]["id"]
 
-                photo_url = None
+                photo_url = thumb_url = None
                 if photo is not None:
                     photo_url, thumb_url = upload_photo(photo.read(), photo.name)
 
-                insert_entry(visit_date.isoformat(), store_id, ramen_name, score, comment, photo_url, thumb_url)
+                insert_entry(
+                    visit_date.isoformat(), store_id, ramen_name, score, comment, photo_url, thumb_url
+                )
                 st.success("記録を保存しました！")
                 st.session_state["do_reload"] = True
-#                components.html("<script>window.location.reload();</script>", height=0)
-#                st.rerun()
-
-#    st.markdown("---")
-#    st.subheader("最新の記録")
 
     if st.session_state.get("do_reload"):
         st.session_state["do_reload"] = False
@@ -312,27 +282,6 @@ def main():
         st.stop()
 
     entries = fetch_entries()
-
-#    if not entries:
-#        st.info("まだ記録がありません。上のフォームから追加してください。")
-#    else:
-#        for entry in entries[:10]:
-#            store_info = entry.get("stores", {}) or {}
-#            with st.expander(
-#                f"{entry['date']} - {store_info.get('name', '?')} / {entry['ramen_name']} ({entry['score']}点)"
-#            ):
-#                st.write(f"**お店:** {store_info.get('name', '-')}")
-#                lat = store_info.get("latitude")
-#                lon = store_info.get("longitude")
-#                if lat is not None and lon is not None:
-#                    st.write(f"**GPS:** {lat}, {lon}")
-#                st.write(f"**日付:** {entry['date']}")
-#                st.write(f"**ラーメン名:** {entry['ramen_name']}")
-#                st.write(f"**点数:** {entry['score']}")
-#                if entry.get("comment"):
-#                    st.write(f"**コメント:** {entry['comment']}")
-#                if entry.get("photo_path"):
-#                    st.image(entry["photo_path"], caption="ラーメンの写真", width='stretch')
 
     st.markdown("---")
     st.subheader("統計")
@@ -347,7 +296,6 @@ def main():
         if year_stats:
             st.write("### 年別の来店回数")
             st.table([{"年": r["year"], "回数": r["count"]} for r in year_stats])
-#            st.bar_chart({r["year"]: r["count"] for r in year_stats})
         else:
             st.info("年別統計はまだありません。")
 
@@ -356,7 +304,9 @@ def main():
             available_years = sorted(set(r["month"][:4] for r in month_stats), reverse=True)
             current_year = str(datetime.date.today().year)
             default_idx = available_years.index(current_year) if current_year in available_years else 0
-            selected_year = st.selectbox("年を選択", available_years, index=default_idx, key="month_year_select")
+            selected_year = st.selectbox(
+                "年を選択", available_years, index=default_idx, key="month_year_select"
+            )
             filtered = [r for r in month_stats if r["month"][:4] == selected_year]
             st.table([{"年月": r["month"], "回数": r["count"]} for r in filtered])
         else:
@@ -367,109 +317,43 @@ def main():
             available_months = [f"{m:02d}" for m in range(1, 13)]
             current_year = str(datetime.date.today().year)
             current_month = f"{datetime.date.today().month:02d}"
-            default_year_idx = available_years.index(current_year) if current_year in available_years else 0
+            default_year_idx = (
+                available_years.index(current_year) if current_year in available_years else 0
+            )
             default_month_idx = available_months.index(current_month)
 
             col1, col2 = st.columns(2)
             with col1:
-                selected_year = st.selectbox("年を選択", available_years, index=default_year_idx, key="store_month_year_select")
+                selected_year = st.selectbox(
+                    "年を選択", available_years, index=default_year_idx, key="store_month_year_select"
+                )
             with col2:
-                selected_month = st.selectbox("月を選択", available_months, index=default_month_idx, key="store_month_month_select")
+                selected_month = st.selectbox(
+                    "月を選択", available_months, index=default_month_idx, key="store_month_month_select"
+                )
 
             target = f"{selected_year}-{selected_month}"
-            filtered_stats = sorted([r for r in store_month_stats if r["month"] == target], key=lambda r: r["count"], reverse=True)
+            filtered_stats = sorted(
+                [r for r in store_month_stats if r["month"] == target],
+                key=lambda r: r["count"],
+                reverse=True,
+            )
 
             if not filtered_stats:
                 st.info("該当する記録がありません。")
             else:
                 photo_entries = sorted(
-                    [e for stat in filtered_stats
-                       for e in entries
-                       if e["stores"]["name"] == stat["store_name"] and e["date"][:7] == stat["month"]],
+                    [
+                        e
+                        for stat in filtered_stats
+                        for e in entries
+                        if e["stores"]["name"] == stat["store_name"]
+                        and e["date"][:7] == stat["month"]
+                    ],
                     key=lambda e: e["date"],
                     reverse=True,
                 )
-
-                img_html = """
-                <style>
-                .tile { aspect-ratio:1/1; overflow:hidden; cursor:pointer; }
-                .tile img { width:100%; height:100%; object-fit:cover; display:block; transition:opacity 0.2s; }
-                .tile:hover img { opacity:0.85; }
-                .rl-modal-bg {
-                    display:none; position:fixed; inset:0;
-                    background:rgba(0,0,0,0.7); z-index:9999;
-                    align-items:center; justify-content:center;
-                }
-                .rl-modal-bg.active { display:flex; }
-                .rl-modal {
-                    background:#fff; border-radius:12px; overflow:hidden;
-                    max-width:360px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.4);
-                }
-                .rl-modal img { width:100%; aspect-ratio:1/1; object-fit:cover; display:block; }
-                .rl-modal .info { padding:12px 16px; font-size:0.9em; line-height:1.8; }
-                .rl-modal .info .ramen-name { font-size:1.1em; font-weight:bold; margin-bottom:4px; }
-                .rl-modal .close-btn {
-                    display:block; width:100%; padding:10px;
-                    background:#f0f0f0; border:none; cursor:pointer;
-                    font-size:0.9em; color:#333;
-                }
-                .rl-modal .close-btn:hover { background:#e0e0e0; }
-                </style>
-                <div class="rl-modal-bg" id="rlModalBg" onclick="if(event.target===this)closeModal()">
-                    <div class="rl-modal">
-                        <img id="rlModalImg" src="">
-                        <div class="info">
-                            <div class="ramen-name" id="rlModalRamen"></div>
-                            <div id="rlModalDate"></div>
-                            <div id="rlModalStore"></div>
-                            <div id="rlModalScore"></div>
-                            <div id="rlModalComment"></div>
-                        </div>
-                        <button class="close-btn" onclick="closeModal()">閉じる</button>
-                    </div>
-                </div>
-                <script>
-                function openModal(src, date, store, ramen, score, comment) {
-                    document.getElementById('rlModalImg').src = src;
-                    document.getElementById('rlModalDate').textContent = '📅 ' + date;
-                    document.getElementById('rlModalStore').textContent = '📍 ' + store;
-                    document.getElementById('rlModalRamen').textContent = '🍜 ' + ramen;
-                    document.getElementById('rlModalScore').textContent = '⭐ ' + score + '点';
-                    var c = document.getElementById('rlModalComment');
-                    c.textContent = comment ? '💬 ' + comment : '';
-                    document.getElementById('rlModalBg').classList.add('active');
-                }
-                function closeModal() {
-                    document.getElementById('rlModalBg').classList.remove('active');
-                }
-                </script>
-                """
-                for entry in photo_entries:
-                    store_info = entry.get("stores", {}) or {}
-                    store = store_info.get("name", "").replace("'", "\\'")
-                    date = entry.get("date", "").replace("'", "\\'")
-                    ramen = entry.get("ramen_name", "").replace("'", "\\'")
-                    score = entry.get("score", "")
-                    comment = (entry.get("comment") or "").replace("'", "\\'")
-                    src = entry.get("thumbnail_path") or entry.get("photo_path") or ""
-                    full_src = entry.get("photo_path") or src
-
-                    if src:
-                        img_html += (
-                            f'<div class="tile" onclick="openModal(\'{full_src}\',\'{date}\',\'{store}\',\'{ramen}\',\'{score}\',\'{comment}\')">'
-                            f'<img src="{src}"></div>'
-                        )
-                    else:
-                        img_html += '<div class="tile" style="background:#f0f0f0;display:flex;align-items:center;justify-content:center;color:#999;">📷</div>'
-                tile_height = (len(photo_entries) // 4 + 1) * 220
-                modal_height = 600
-                components.html(
-                    f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;">'
-                    f'{img_html}'
-                    f'</div>',
-                    height=max(tile_height, modal_height),
-                    scrolling=False
-                )
+                render_photo_tiles(photo_entries, key_prefix="month_tile")
         else:
             st.info("月別の履歴はまだありません。")
 
@@ -478,7 +362,11 @@ def main():
             st.write("### お店別・年別の来店回数")
             available_years = sorted(set(r["year"] for r in store_year_stats), reverse=True)
             selected_year = st.selectbox("年を選択", available_years, key="store_year_select")
-            filtered = sorted([r for r in store_year_stats if r["year"] == selected_year], key=lambda r: r["count"], reverse=True)
+            filtered = sorted(
+                [r for r in store_year_stats if r["year"] == selected_year],
+                key=lambda r: r["count"],
+                reverse=True,
+            )
 
             selected = st.session_state.get("selected_store_year")
             if selected and selected.get("year") != selected_year:
@@ -495,7 +383,11 @@ def main():
                     cols[1].write(f"{row['count']}回")
 
                     if clicked:
-                        if selected and selected["store_name"] == row["store_name"] and selected["year"] == row["year"]:
+                        if (
+                            selected
+                            and selected["store_name"] == row["store_name"]
+                            and selected["year"] == row["year"]
+                        ):
                             st.session_state.pop("selected_store_year", None)
                             selected = None
                         else:
@@ -505,41 +397,53 @@ def main():
                             }
                             selected = st.session_state["selected_store_year"]
 
-                    if selected and selected["store_name"] == row["store_name"] and selected["year"] == row["year"]:
+                    if (
+                        selected
+                        and selected["store_name"] == row["store_name"]
+                        and selected["year"] == row["year"]
+                    ):
                         st.markdown(f"**{selected['store_name']} ({selected['year']}) の写真**")
                         photo_entries = sorted(
-                            [e for e in entries if e["stores"]["name"] == selected["store_name"] and e["date"][:4] == selected["year"]],
+                            [
+                                e
+                                for e in entries
+                                if e["stores"]["name"] == selected["store_name"]
+                                and e["date"][:4] == selected["year"]
+                            ],
                             key=lambda e: e["date"],
                             reverse=True,
                         )
-                        render_photo_tiles(photo_entries)
+                        render_photo_tiles(photo_entries, key_prefix=f"store_tile_{idx}")
         else:
             st.info("お店別・年別の統計はまだありません。")
 
         st.write("### 登録済みのお店")
         if stores:
-            if any(s['latitude'] and s['longitude'] for s in stores):
+            if any(s["latitude"] and s["longitude"] for s in stores):
                 st.write("### 🗺️ お店の場所")
-                center_lat = stores[0]['latitude'] if stores[0]['latitude'] else 35.681236
-                center_lon = stores[0]['longitude'] if stores[0]['longitude'] else 139.767125
+                center_lat = stores[0]["latitude"] if stores[0]["latitude"] else 35.681236
+                center_lon = stores[0]["longitude"] if stores[0]["longitude"] else 139.767125
 
                 m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
-
                 for store in stores:
-                    if store['latitude'] and store['longitude']:
+                    if store["latitude"] and store["longitude"]:
                         folium.Marker(
-                            location=[store['latitude'], store['longitude']],
+                            location=[store["latitude"], store["longitude"]],
                             popup=f"<b>{store['name']}</b><br>GPS: {store['latitude']}, {store['longitude']}",
-                            tooltip=store['name']
+                            tooltip=store["name"],
                         ).add_to(m)
-
                 st_folium(m, height=400, width=700)
             else:
-                st.table([{"お店": s['name']} for s in stores])
+                st.table([{"お店": s["name"]} for s in stores])
         else:
             st.info("まだお店が登録されていません。記録登録で追加できます。")
 
+    # ─── ダイアログはここで一度だけ開く ───────────────────────────────────────
+    # render_photo_tiles がフラグを立てた場合のみ実行される
+    if st.session_state.pop("_open_modal", False):
+        show_photo_modal()
 
 
 if __name__ == "__main__":
     main()
+    
