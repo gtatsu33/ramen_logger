@@ -162,26 +162,44 @@ def render_photo_tiles(photo_entries, key_prefix: str = "tile"):
         st.info("該当する写真はありません。")
         return
 
-    NUM_COLS = 5
+    NUM_COLS = 4
 
     # Streamlit がモバイルでカラムを縦積みにする CSS を上書き。
-    # :has(> …:nth-child(5)) で「5列ブロックだけ」をターゲットにするため
+    # :has(> …:nth-child(4)) で「4列ブロックだけ」をターゲットにするため
     # 他のカラムレイアウト（2列など）には影響しない。
     st.markdown(
         """
         <style>
         div[data-testid="stHorizontalBlock"]:has(
-            > div[data-testid="stColumn"]:nth-child(5)
+            > div[data-testid="stColumn"]:nth-child(4)
         ) {
             flex-wrap: nowrap !important;
+            gap: 2px !important;
+            margin-bottom: 0 !important;
         }
         div[data-testid="stHorizontalBlock"]:has(
-            > div[data-testid="stColumn"]:nth-child(5)
+            > div[data-testid="stColumn"]:nth-child(4)
         ) > div[data-testid="stColumn"] {
             min-width: 0 !important;
             flex: 1 1 0 !important;
             max-width: none !important;
             box-sizing: border-box !important;
+            padding: 0 !important;
+            margin: 0 !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has(
+            > div[data-testid="stColumn"]:nth-child(4)
+        ) > div[data-testid="stColumn"] > div {
+            margin: 0 !important;
+            padding: 0 !important;
+            line-height: 0 !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has(
+            > div[data-testid="stColumn"]:nth-child(4)
+        ) > div[data-testid="stColumn"] iframe {
+            display: block !important;
+            margin: 0 !important;
+            padding: 0 !important;
         }
         </style>
         """,
