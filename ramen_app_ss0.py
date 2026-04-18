@@ -156,48 +156,41 @@ def render_photo_tiles(photo_entries, key_prefix: str = "tile"):
     """
     写真グリッドを描画する。クリックを検出したら session_state にフラグを立てるだけ。
     ダイアログは main() の末尾で一度だけ開く。
+    常に5列固定で表示する。
     """
     if not photo_entries:
         st.info("該当する写真はありません。")
         return
 
-    st.markdown(
-        "<style>[data-testid='stImage'] img { cursor: pointer; }</style>",
-        unsafe_allow_html=True,
-    )
+    NUM_COLS = 5
+    cols = st.columns(NUM_COLS)
 
-    COLS = 4
-    for row_start in range(0, len(photo_entries), COLS):
-        row_entries = photo_entries[row_start : row_start + COLS]
-        cols = st.columns(COLS)
-        for col_idx, entry in enumerate(row_entries):
-            with cols[col_idx]:
-                src = entry.get("thumbnail_path") or entry.get("photo_path") or ""
-                entry_id = entry.get("id", f"{row_start}_{col_idx}")
-                img_key = f"{key_prefix}_{entry_id}"
-                ts_key  = f"_seen_ts_{img_key}"
+    for idx, entry in enumerate(photo_entries):
+        src = entry.get("thumbnail_path") or entry.get("photo_path") or ""
+        entry_id = entry.get("id", f"{idx}")
+        img_key = f"{key_prefix}_{entry_id}"
+        ts_key = f"_seen_ts_{img_key}"
 
-                if src:
-                    clicked = streamlit_image_coordinates(
-                        src,
-                        key=img_key,
-                        use_column_width="always",
-                    )
-                    if clicked is not None:
-                        ts = clicked.get("timestamp", 0)
-                        if ts != st.session_state.get(ts_key):
-                            # 新しいクリック：タイムスタンプを記録してフラグを立てる
-                            st.session_state[ts_key] = ts
-                            # すでに別の画像がクリックされていた場合は上書き（最後が優先）
-                            st.session_state["modal_entry"] = entry
-                            st.session_state["_open_modal"] = True
-                else:
-                    st.markdown(
-                        "<div style='aspect-ratio:1/1;background:#f0f0f0;"
-                        "display:flex;align-items:center;justify-content:center;"
-                        "border-radius:4px;color:#aaa;font-size:1.5em;'>📷</div>",
-                        unsafe_allow_html=True,
-                    )
+        with cols[idx % NUM_COLS]:
+            if src:
+                clicked = streamlit_image_coordinates(
+                    src,
+                    key=img_key,
+                    use_column_width="always",
+                )
+                if clicked is not None:
+                    ts = clicked.get("timestamp", 0)
+                    if ts != st.session_state.get(ts_key):
+                        st.session_state[ts_key] = ts
+                        st.session_state["modal_entry"] = entry
+                        st.session_state["_open_modal"] = True
+            else:
+                st.markdown(
+                    "<div style='aspect-ratio:1/1;background:#f0f0f0;"
+                    "display:flex;align-items:center;justify-content:center;"
+                    "border-radius:4px;color:#aaa;font-size:1.5em;'>📷</div>",
+                    unsafe_allow_html=True,
+                )
 
 
 # ─── メイン ───────────────────────────────────────────────────────────────────
