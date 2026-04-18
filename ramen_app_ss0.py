@@ -163,6 +163,31 @@ def render_photo_tiles(photo_entries, key_prefix: str = "tile"):
         return
 
     NUM_COLS = 5
+
+    # Streamlit がモバイルでカラムを縦積みにする CSS を上書き。
+    # :has(> …:nth-child(5)) で「5列ブロックだけ」をターゲットにするため
+    # 他のカラムレイアウト（2列など）には影響しない。
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stHorizontalBlock"]:has(
+            > div[data-testid="stColumn"]:nth-child(5)
+        ) {
+            flex-wrap: nowrap !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has(
+            > div[data-testid="stColumn"]:nth-child(5)
+        ) > div[data-testid="stColumn"] {
+            min-width: 0 !important;
+            flex: 1 1 0 !important;
+            max-width: none !important;
+            box-sizing: border-box !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     cols = st.columns(NUM_COLS)
 
     for idx, entry in enumerate(photo_entries):
