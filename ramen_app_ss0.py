@@ -336,7 +336,7 @@ def main():
             st.info("年別統計はまだありません。")
 
         if month_stats:
-            st.write("### 月別の来店回数")
+            st.write("### 月別の記録")
             available_years = sorted(set(r["month"][:4] for r in month_stats), reverse=True)
             current_year = str(datetime.date.today().year)
             default_idx = available_years.index(current_year) if current_year in available_years else 0
@@ -364,14 +364,17 @@ def main():
                     month_entries = monthly_entries[month]
                     month_name = f"{int(month[5:]):d}月"  # MM を数値に変換して月
                     count = len(month_entries)
-                    st.write(f"**{month_name} {count}件**")
+                    st.markdown(
+                        f"<p style='margin-top:14px; margin-bottom:2px; font-weight:bold;'>{month_name} {count}件</p>",
+                        unsafe_allow_html=True,
+                )   
                     render_photo_tiles(month_entries, key_prefix=f"month_{month}")
         else:
             st.info("月別統計はまだありません。")
 
     with tab_store:
         if store_year_stats:
-            st.write("### お店別・年別の来店回数")
+            st.write("### お店別の記録")
             available_years = sorted(set(r["year"] for r in store_year_stats), reverse=True)
             selected_year = st.selectbox("年を選択", available_years, key="store_year_select")
             filtered = sorted(
@@ -383,7 +386,10 @@ def main():
             for row in filtered:
                 store_name = row["store_name"]
                 count = row["count"]
-                st.write(f"**{store_name} {count}件**")
+                st.markdown(
+                    f"<p style='margin-top:14px; margin-bottom:2px; font-weight:bold;'>{store_name} {count}件</p>",
+                    unsafe_allow_html=True,
+                )
                 photo_entries = sorted(
                     [
                         e
