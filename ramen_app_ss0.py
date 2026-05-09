@@ -125,6 +125,34 @@ def stats_by_store_month(entries):
     return [{"store_name": k[0], "month": k[1], "count": v} for k, v in sorted(counter.items())]
 
 
+# ─── 新規店舗登録確認ダイアログ ──────────────────────────────────────────────
+@st.dialog("登録確認", width="small")
+def confirm_save_dialog():
+    pending = st.session_state.get("_pending_save", {})
+    store_name = pending.get("store_name", "")
+    st.markdown(f'店舗名「**{store_name}**」で登録します。よろしいですか？')
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("はい", use_container_width=True, type="primary"):
+            store_id = insert_store(store_name, pending["store_lat"], pending["store_lon"])
+            photo_url = thumb_url = None
+            if pending.get("photo_bytes"):
+                photo_url, thumb_url = upload_photo(pending["photo_bytes"], pending["photo_name"])
+            insert_entry(
+                pending["visit_date"], store_id, pending["ramen_name"],
+                pending["score"], pending["comment"], photo_url, thumb_url,
+            )
+            st.session_state.pop("_pending_save", None)
+            for k in ["_last_action", "_prev_manual", "_prev_map_coords", "store_name_input"]:
+                st.session_state.pop(k, None)
+            st.session_state["do_reload"] = True
+            st.rerun()
+    with col2:
+        if st.button("キャンセル", use_container_width=True):
+            st.session_state.pop("_pending_save", None)
+            st.rerun()
+
+
 # ─── モーダルダイアログ ────────────────────────────────────────────────────────
 @st.dialog("ラーメン詳細", width="large")
 def show_photo_modal():
@@ -252,15 +280,35 @@ def main():
 
     if selected_store == "新しいお店を登録":
         new_store = True
-        store_name = st.text_input("お店の名前")
 
-        st.subheader("📍 お店の場所を選択")
-
+        # ── URL パラメータ（地図クリックでJSが書き込む） ──────────────────────
         params = st.query_params
         has_map_selection = "map_lat" in params and "map_lng" in params
         init_lat = float(params.get("map_lat", 35.681236))
         init_lng = float(params.get("map_lng", 139.767125))
+        map_name = params.get("map_name", "")
         init_has_js = "true" if has_map_selection else "false"
+        init_name_js = json.dumps(map_name)
+
+        # ── 地図クリック検知：座標が変わったら _last_action = "map" ───────────
+        current_coords = (params.get("map_lat", ""), params.get("map_lng", ""))
+        prev_coords = st.session_state.get("_prev_map_coords", ("", ""))
+        if current_coords != ("", "") and current_coords != prev_coords:
+            st.session_state["_last_action"] = "map"
+            st.session_state["_prev_map_coords"] = current_coords
+
+        # ── 手入力フィールド（マップとは独立・自動入力なし） ──────────────────
+        prev_manual = st.session_state.get("_prev_manual", "")
+        manual_name = st.text_input("お店の名前（手入力）", key="store_name_input")
+        if manual_name != prev_manual and manual_name:
+            st.session_state["_last_action"] = "manual"
+        st.session_state["_prev_manual"] = manual_name
+
+        # ── 登録に使う店舗名を決定 ────────────────────────────────────────────
+        last_action = st.session_state.get("_last_action", "")
+        store_name = map_name if last_action == "map" else manual_name
+
+        st.subheader("📍 お店の場所を選択")
 
         pick_map_html = f"""<!DOCTYPE html>
 <html>
@@ -279,6 +327,7 @@ def main():
 const HAS = {init_has_js};
 const ILAT = {init_lat};
 const ILNG = {init_lng};
+const INAME = {init_name_js};
 function gm_authFailure() {{
   document.getElementById('map').innerHTML =
     '<p style="color:red;padding:16px">Maps認証エラー: APIキーが無効か、Maps JavaScript APIが有効になっていません。</p>';
@@ -291,21 +340,37 @@ function initMap() {{
   let marker = null;
   if (HAS) {{
     marker = new google.maps.Marker({{position: {{lat: ILAT, lng: ILNG}}, map: map}});
-    document.getElementById('info').textContent =
-      '選択中: 緯度 ' + ILAT.toFixed(6) + ', 経度 ' + ILNG.toFixed(6);
+    document.getElementById('info').textContent = INAME
+      ? '📍 ' + INAME
+      : '選択中: 緯度 ' + ILAT.toFixed(6) + ', 経度 ' + ILNG.toFixed(6);
   }}
   map.addListener('click', e => {{
     const lat = e.latLng.lat();
     const lng = e.latLng.lng();
     if (marker) marker.setMap(null);
     marker = new google.maps.Marker({{position: e.latLng, map: map}});
-    document.getElementById('info').textContent =
-      '選択中: 緯度 ' + lat.toFixed(6) + ', 経度 ' + lng.toFixed(6);
-    window.parent.history.replaceState(null, '', '?map_lat=' + lat + '&map_lng=' + lng);
+    document.getElementById('info').textContent = '周辺のラーメン店を検索中...';
+    const svc = new google.maps.places.PlacesService(map);
+    svc.nearbySearch({{
+      location: e.latLng,
+      rankBy: google.maps.places.RankBy.DISTANCE,
+      keyword: 'ラーメン',
+    }}, (results, status) => {{
+      let name = '';
+      if (status === google.maps.places.PlacesServiceStatus.OK && results.length > 0) {{
+        name = results[0].name;
+        document.getElementById('info').textContent = '📍 ' + name;
+      }} else {{
+        document.getElementById('info').textContent =
+          '選択中: 緯度 ' + lat.toFixed(6) + ', 経度 ' + lng.toFixed(6) + '（店舗名未検出）';
+      }}
+      window.parent.history.replaceState(null, '',
+        '?map_lat=' + lat + '&map_lng=' + lng + '&map_name=' + encodeURIComponent(name));
+    }});
   }});
 }}
 </script>
-<script src="https://maps.googleapis.com/maps/api/js?key={GMAPS_KEY}&callback=initMap" async defer></script>
+<script src="https://maps.googleapis.com/maps/api/js?key={GMAPS_KEY}&libraries=places&callback=initMap" async defer></script>
 </body>
 </html>"""
         components.html(pick_map_html, height=430)
@@ -343,24 +408,36 @@ function initMap() {{
             elif new_store and not store_name.strip():
                 st.error("新しいお店の名前を入力してください。")
             else:
+                photo_bytes = photo.read() if photo is not None else None
+                photo_name = photo.name if photo is not None else None
+
                 if new_store:
-                    store_id = insert_store(store_name, store_lat, store_lon)
+                    # 確認ダイアログに委ねる
+                    st.session_state["_pending_save"] = {
+                        "store_name": store_name,
+                        "store_lat": store_lat,
+                        "store_lon": store_lon,
+                        "visit_date": visit_date.isoformat(),
+                        "ramen_name": ramen_name,
+                        "score": score,
+                        "comment": comment,
+                        "photo_bytes": photo_bytes,
+                        "photo_name": photo_name,
+                    }
                 else:
                     store_id = stores[store_index]["id"]
-
-                photo_url = thumb_url = None
-                if photo is not None:
-                    photo_url, thumb_url = upload_photo(photo.read(), photo.name)
-
-                insert_entry(
-                    visit_date.isoformat(), store_id, ramen_name, score, comment, photo_url, thumb_url
-                )
-                st.success("記録を保存しました！")
-                st.session_state["do_reload"] = True
+                    photo_url = thumb_url = None
+                    if photo_bytes:
+                        photo_url, thumb_url = upload_photo(photo_bytes, photo_name)
+                    insert_entry(
+                        visit_date.isoformat(), store_id, ramen_name, score, comment, photo_url, thumb_url
+                    )
+                    st.success("記録を保存しました！")
+                    st.session_state["do_reload"] = True
 
     if st.session_state.get("do_reload"):
         st.session_state["do_reload"] = False
-        components.html("<script>window.parent.location.href=window.parent.location.pathname;</script>", height=0)
+        components.html("<script>window.parent.history.replaceState(null,'',window.parent.location.pathname);window.parent.location.reload();</script>", height=0)
         st.stop()
 
     entries = fetch_entries()
@@ -510,6 +587,9 @@ function initMap() {{
             st.info("まだお店が登録されていません。記録登録で追加できます。")
 
     # ─── ダイアログはここで一度だけ開く ───────────────────────────────────────
+    if st.session_state.get("_pending_save"):
+        confirm_save_dialog()
+
     # render_photo_tiles がフラグを立てた場合のみ実行される
     if st.session_state.pop("_open_modal", False):
         show_photo_modal()
