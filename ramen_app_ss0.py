@@ -1,17 +1,17 @@
 import uuid
 import datetime
 import io
+import json
 from collections import Counter
 from PIL import Image, ImageOps
 import streamlit as st
 from supabase import create_client, Client
-import folium
-from streamlit_folium import st_folium
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+GMAPS_KEY = st.secrets["GOOGLE_MAPS_API_KEY"]
 BUCKET_NAME = "ramen-photos"
 
 
@@ -255,21 +255,67 @@ def main():
         store_name = st.text_input("お店の名前")
 
         st.subheader("📍 お店の場所を選択")
-        st.write("地図をクリックして場所を選択してください。")
 
-        default_lat, default_lon = 35.681236, 139.767125
-        m = folium.Map(location=[default_lat, default_lon], zoom_start=15)
-        m.add_child(folium.LatLngPopup())
-        map_data = st_folium(m, height=400, width=700)
+        params = st.query_params
+        has_map_selection = "map_lat" in params and "map_lng" in params
+        init_lat = float(params.get("map_lat", 35.681236))
+        init_lng = float(params.get("map_lng", 139.767125))
+        init_has_js = "true" if has_map_selection else "false"
 
-        if map_data and "last_clicked" in map_data and map_data["last_clicked"]:
-            clicked_lat = map_data["last_clicked"]["lat"]
-            clicked_lng = map_data["last_clicked"]["lng"]
-            st.success(f"選択された位置: 緯度 {clicked_lat:.6f}, 経度 {clicked_lng:.6f}")
-            store_lat = clicked_lat
-            store_lon = clicked_lng
+        pick_map_html = f"""<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body {{ margin: 0; }}
+  #map {{ height: 400px; width: 100%; }}
+  #info {{ padding: 6px 10px; font-size: 13px; color: #555;
+           background: #f5f5f5; border-bottom: 1px solid #ddd; }}
+</style>
+</head>
+<body>
+<div id="info">地図をクリックして場所を選択してください。</div>
+<div id="map"></div>
+<script>
+const HAS = {init_has_js};
+const ILAT = {init_lat};
+const ILNG = {init_lng};
+function gm_authFailure() {{
+  document.getElementById('map').innerHTML =
+    '<p style="color:red;padding:16px">Maps認証エラー: APIキーが無効か、Maps JavaScript APIが有効になっていません。</p>';
+}}
+function initMap() {{
+  const map = new google.maps.Map(document.getElementById('map'), {{
+    center: {{lat: ILAT, lng: ILNG}},
+    zoom: 15,
+  }});
+  let marker = null;
+  if (HAS) {{
+    marker = new google.maps.Marker({{position: {{lat: ILAT, lng: ILNG}}, map: map}});
+    document.getElementById('info').textContent =
+      '選択中: 緯度 ' + ILAT.toFixed(6) + ', 経度 ' + ILNG.toFixed(6);
+  }}
+  map.addListener('click', e => {{
+    const lat = e.latLng.lat();
+    const lng = e.latLng.lng();
+    if (marker) marker.setMap(null);
+    marker = new google.maps.Marker({{position: e.latLng, map: map}});
+    document.getElementById('info').textContent =
+      '選択中: 緯度 ' + lat.toFixed(6) + ', 経度 ' + lng.toFixed(6);
+    window.parent.history.replaceState(null, '', '?map_lat=' + lat + '&map_lng=' + lng);
+  }});
+}}
+</script>
+<script src="https://maps.googleapis.com/maps/api/js?key={GMAPS_KEY}&callback=initMap" async defer></script>
+</body>
+</html>"""
+        components.html(pick_map_html, height=430)
+
+        if has_map_selection:
+            store_lat = init_lat
+            store_lon = init_lng
+            st.success(f"選択された位置: 緯度 {store_lat:.6f}, 経度 {store_lon:.6f}")
         else:
-            st.info("地図をクリックして場所を選択してください。")
+            st.info("地図をクリックしてから「保存する」を押してください。")
             store_lat = None
             store_lon = None
     else:
@@ -314,7 +360,7 @@ def main():
 
     if st.session_state.get("do_reload"):
         st.session_state["do_reload"] = False
-        components.html("<script>window.parent.location.reload();</script>", height=0)
+        components.html("<script>window.parent.location.href=window.parent.location.pathname;</script>", height=0)
         st.stop()
 
     entries = fetch_entries()
@@ -410,18 +456,54 @@ def main():
         if stores:
             if any(s["latitude"] and s["longitude"] for s in stores):
                 st.write("### 🗺️ お店の場所")
-                center_lat = stores[0]["latitude"] if stores[0]["latitude"] else 35.681236
-                center_lon = stores[0]["longitude"] if stores[0]["longitude"] else 139.767125
-
-                m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
-                for store in stores:
-                    if store["latitude"] and store["longitude"]:
-                        folium.Marker(
-                            location=[store["latitude"], store["longitude"]],
-                            popup=f"<b>{store['name']}</b><br>GPS: {store['latitude']}, {store['longitude']}",
-                            tooltip=store["name"],
-                        ).add_to(m)
-                st_folium(m, height=400, width=700)
+                valid_stores = [s for s in stores if s["latitude"] and s["longitude"]]
+                center_lat = valid_stores[0]["latitude"]
+                center_lon = valid_stores[0]["longitude"]
+                markers_json = json.dumps(
+                    [{"lat": s["latitude"], "lng": s["longitude"], "name": s["name"]}
+                     for s in valid_stores],
+                    ensure_ascii=False,
+                )
+                list_map_html = f"""<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body {{ margin: 0; }}
+  #map {{ height: 400px; width: 100%; }}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+const MARKERS = {markers_json};
+const CENTER = {{lat: {center_lat}, lng: {center_lon}}};
+function gm_authFailure() {{
+  document.getElementById('map').innerHTML =
+    '<p style="color:red;padding:16px">Maps認証エラー: APIキーが無効か、Maps JavaScript APIが有効になっていません。</p>';
+}}
+function initMap() {{
+  const map = new google.maps.Map(document.getElementById('map'), {{
+    center: CENTER,
+    zoom: 12,
+  }});
+  const infoWindow = new google.maps.InfoWindow();
+  MARKERS.forEach(m => {{
+    const marker = new google.maps.Marker({{
+      position: {{lat: m.lat, lng: m.lng}},
+      map: map,
+      title: m.name,
+    }});
+    marker.addListener('click', () => {{
+      infoWindow.setContent('<b>' + m.name + '</b>');
+      infoWindow.open(map, marker);
+    }});
+  }});
+}}
+</script>
+<script src="https://maps.googleapis.com/maps/api/js?key={GMAPS_KEY}&callback=initMap" async defer></script>
+</body>
+</html>"""
+                components.html(list_map_html, height=420)
             else:
                 st.table([{"お店": s["name"]} for s in stores])
         else:

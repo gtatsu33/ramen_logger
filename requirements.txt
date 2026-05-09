@@ -1,5 +1,3 @@
 streamlit==1.51.0
 supabase
-folium
-streamlit-folium
 streamlit-image-coordinates
