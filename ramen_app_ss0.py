@@ -338,11 +338,44 @@ function initMap() {{
     zoom: 15,
   }});
   let marker = null;
+  let currentLocationMarker = null;
   if (HAS) {{
     marker = new google.maps.Marker({{position: {{lat: ILAT, lng: ILNG}}, map: map}});
     document.getElementById('info').textContent = INAME
       ? '📍 ' + INAME
       : '選択中: 緯度 ' + ILAT.toFixed(6) + ', 経度 ' + ILNG.toFixed(6);
+  }} else if (navigator.geolocation) {{
+    document.getElementById('info').textContent =
+      '現在地を取得しています。許可すると地図の初期位置に反映されます。';
+    navigator.geolocation.getCurrentPosition(
+      pos => {{
+        const current = {{
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        }};
+        map.setCenter(current);
+        currentLocationMarker = new google.maps.Marker({{
+          position: current,
+          map: map,
+          title: '現在地',
+          icon: {{
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 7,
+            fillColor: '#4285F4',
+            fillOpacity: 1,
+            strokeColor: '#ffffff',
+            strokeWeight: 2,
+          }},
+        }});
+        document.getElementById('info').textContent =
+          '現在地周辺を表示しています。地図をクリックして場所を選択してください。';
+      }},
+      () => {{
+        document.getElementById('info').textContent =
+          '地図をクリックして場所を選択してください。';
+      }},
+      {{enableHighAccuracy: true, timeout: 10000, maximumAge: 300000}}
+    );
   }}
   map.addListener('click', e => {{
     const lat = e.latLng.lat();
