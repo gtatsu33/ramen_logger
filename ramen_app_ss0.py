@@ -176,7 +176,6 @@ def show_photo_modal():
 
     if st.button("閉じる", use_container_width=True):
         del st.session_state["modal_entry"]
-        st.session_state["_tile_gen"] = st.session_state.get("_tile_gen", 0) + 1
         st.rerun()
 
 
@@ -257,6 +256,7 @@ def render_photo_tiles(photo_entries, key_prefix: str = "tile"):
                     if ts != st.session_state.get(ts_key):
                         st.session_state[ts_key] = ts
                         st.session_state["modal_entry"] = entry
+                        st.session_state["_tile_gen"] = tile_gen + 1
                         st.session_state["_open_modal"] = True
             else:
                 st.markdown(
