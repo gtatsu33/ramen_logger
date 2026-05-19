@@ -189,7 +189,6 @@ def render_photo_tiles(photo_entries, key_prefix: str = "tile"):
     """
     写真グリッドを描画する。クリックを検出したら session_state にフラグを立てるだけ。
     ダイアログは main() の末尾で一度だけ開く。
-    常に5列固定で表示する。
     """
     if not photo_entries:
         st.info("該当する写真はありません。")
@@ -241,12 +240,10 @@ def render_photo_tiles(photo_entries, key_prefix: str = "tile"):
 
     cols = st.columns(NUM_COLS)
 
-    tile_gen = st.session_state.get("_tile_gen", 0)
-
     for idx, entry in enumerate(photo_entries):
         src = entry.get("thumbnail_path") or entry.get("photo_path") or ""
         entry_id = entry.get("id", f"{idx}")
-        img_key = f"{key_prefix}_{entry_id}_{tile_gen}"
+        img_key = f"{key_prefix}_{entry_id}"
         ts_key = f"_seen_ts_{img_key}"
 
         with cols[idx % NUM_COLS]:
@@ -261,7 +258,6 @@ def render_photo_tiles(photo_entries, key_prefix: str = "tile"):
                     if ts != st.session_state.get(ts_key):
                         st.session_state[ts_key] = ts
                         st.session_state["modal_entry"] = entry
-                        st.session_state["_tile_gen"] = tile_gen + 1
                         st.session_state["_open_modal"] = True
             else:
                 st.markdown(
