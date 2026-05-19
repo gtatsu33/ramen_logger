@@ -156,6 +156,11 @@ def confirm_save_dialog():
 # ─── モーダルダイアログ ────────────────────────────────────────────────────────
 @st.dialog("ラーメン詳細", width="large")
 def show_photo_modal():
+    st.markdown(
+        "<style>button[data-testid='baseButton-headerNoPadding']"
+        "{display:none !important;}</style>",
+        unsafe_allow_html=True,
+    )
     entry = st.session_state.get("modal_entry")
     if not entry:
         return
