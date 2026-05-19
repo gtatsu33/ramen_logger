@@ -176,6 +176,9 @@ def show_photo_modal():
 
     if st.button("閉じる", use_container_width=True):
         del st.session_state["modal_entry"]
+        ts_key = st.session_state.pop("_modal_ts_key", None)
+        if ts_key:
+            st.session_state.pop(ts_key, None)
         st.rerun()
 
 
@@ -254,6 +257,7 @@ def render_photo_tiles(photo_entries, key_prefix: str = "tile"):
                     if ts != st.session_state.get(ts_key):
                         st.session_state[ts_key] = ts
                         st.session_state["modal_entry"] = entry
+                        st.session_state["_modal_ts_key"] = ts_key
                         st.session_state["_open_modal"] = True
             else:
                 st.markdown(
