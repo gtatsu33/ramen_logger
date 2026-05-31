@@ -153,6 +153,15 @@ def confirm_save_dialog():
             st.rerun()
 
 
+# ─── 写真未添付ダイアログ ─────────────────────────────────────────────────────
+@st.dialog("確認", width="small")
+def no_photo_dialog():
+    st.warning("写真がアップロードされていません。")
+    if st.button("キャンセル", use_container_width=True):
+        st.session_state.pop("_no_photo_warning", None)
+        st.rerun()
+
+
 # ─── モーダルダイアログ ────────────────────────────────────────────────────────
 @st.dialog("ラーメン詳細", width="large")
 def show_photo_modal():
@@ -446,6 +455,8 @@ function initMap() {{
                 st.error("ラーメンの名前を入力してください。")
             elif new_store and not store_name.strip():
                 st.error("新しいお店の名前を入力してください。")
+            elif photo is None:
+                st.session_state["_no_photo_warning"] = True
             else:
                 photo_bytes = photo.read() if photo is not None else None
                 photo_name = photo.name if photo is not None else None
@@ -626,6 +637,9 @@ function initMap() {{
             st.info("まだお店が登録されていません。記録登録で追加できます。")
 
     # ─── ダイアログはここで一度だけ開く ───────────────────────────────────────
+    if st.session_state.get("_no_photo_warning"):
+        no_photo_dialog()
+
     if st.session_state.get("_pending_save"):
         confirm_save_dialog()
 
