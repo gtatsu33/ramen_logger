@@ -397,16 +397,10 @@ function initMap() {{
     const lng = e.latLng.lng();
     if (marker) marker.setMap(null);
     marker = new google.maps.Marker({{position: e.latLng, map: map}});
-    document.getElementById('info').textContent = '周辺のラーメン店を検索中...';
+    document.getElementById('info').textContent = '周辺の店舗を検索中...';
     const svc = new google.maps.places.PlacesService(map);
-    svc.nearbySearch({{
-      location: e.latLng,
-      rankBy: google.maps.places.RankBy.DISTANCE,
-      keyword: 'ラーメン',
-    }}, (results, status) => {{
-      let name = '';
-      if (status === google.maps.places.PlacesServiceStatus.OK && results.length > 0) {{
-        name = results[0].name;
+    function finalize(name) {{
+      if (name) {{
         document.getElementById('info').textContent = '📍 ' + name;
       }} else {{
         document.getElementById('info').textContent =
@@ -414,11 +408,38 @@ function initMap() {{
       }}
       window.parent.history.replaceState(null, '',
         '?map_lat=' + lat + '&map_lng=' + lng + '&map_name=' + encodeURIComponent(name));
+    }}
+    function searchRestaurant() {{
+      svc.nearbySearch({{
+        location: e.latLng,
+        rankBy: google.maps.places.RankBy.DISTANCE,
+        type: 'restaurant',
+      }}, (results, status) => {{
+        if (status === google.maps.places.PlacesServiceStatus.OK && results.length > 0) {{
+          const dist = google.maps.geometry.spherical.computeDistanceBetween(
+            e.latLng, results[0].geometry.location);
+          finalize(dist <= 50 ? results[0].name : '');
+        }} else {{
+          finalize('');
+        }}
+      }});
+    }}
+    svc.nearbySearch({{
+      location: e.latLng,
+      rankBy: google.maps.places.RankBy.DISTANCE,
+      keyword: 'ラーメン',
+    }}, (results, status) => {{
+      if (status === google.maps.places.PlacesServiceStatus.OK && results.length > 0) {{
+        const dist = google.maps.geometry.spherical.computeDistanceBetween(
+          e.latLng, results[0].geometry.location);
+        if (dist <= 20) {{ finalize(results[0].name); return; }}
+      }}
+      searchRestaurant();
     }});
   }});
 }}
 </script>
-<script src="https://maps.googleapis.com/maps/api/js?key={GMAPS_KEY}&libraries=places&callback=initMap" async defer></script>
+<script src="https://maps.googleapis.com/maps/api/js?key={GMAPS_KEY}&libraries=places,geometry&callback=initMap" async defer></script>
 </body>
 </html>"""
         components.html(pick_map_html, height=430)
