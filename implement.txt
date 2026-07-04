@@ -1,0 +1,555 @@
+================================================================================
+  ラーメンロガー 実装仕様書 — React + Vite / Cloudflare Pages
+  バージョン: 1.0
+  作成日: 2026-07-04
+  前提: spec.txt の機能仕様を満たすための実装ガイド
+================================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+0. 実装ステップ
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+実装は以下の6ステップに分けて進める。
+各ステップ完了時に動作確認を行い、問題がないことを確認してから次へ進む。
+
+  ステップ   内容                                          完了の目安
+  ────────   ──────────────────────────────────────────   ──────────────────────────────────
+  Step 1     Viteプロジェクト作成・Cloudflare Pagesデプロイ  パイプラインが動くことを確認
+  Step 2     Supabaseクライアント + hooks + データ読み出し   既存データが画面に表示されること
+  Step 3     写真グリッド + 詳細モーダル                    記録の閲覧が完成
+  Step 4     統計タブ（年月別・店舗別）                     統計表示が完成
+  Step 5     記録入力フォーム（地図なし）+ 画像処理          保存が完成
+  Step 6     Google Maps ピッカー + 店舗地図               全機能完成
+
+  ※ Step 1〜3 完了時点で「見る」機能がすべて揃い、実用的な状態になる。
+  ※ 外部依存（Google Maps・Canvas画像処理・Supabase）が絡む部分を
+    意図的に後半に配置し、問題の切り分けをしやすくしている。
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. 技術スタック
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ホスティング  : Cloudflare Pages（静的ホスティング）
+  フロントエンド: React 18 + Vite
+  データ/Storage: Supabase JS クライアント（@supabase/supabase-js）
+  地図         : Google Maps JavaScript API（既存の仕様通り）
+  画像処理      : ブラウザ Canvas API + exifr（EXIF読み取り）
+  バックエンド  : なし（すべてクライアントから Supabase に直接アクセス）
+  CSSフレームワーク: なし（素のCSS / CSS Modules）
+
+  ※ Cloudflare Workers は使用しない。
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. パッケージ構成
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  dependencies:
+    react                   ^19     # 19.2.7 時点での最新
+    react-dom               ^19
+    @supabase/supabase-js   ^2      # 2.110.0 時点での最新
+    exifreader              ^4      # EXIF orientation 読み取り（アクティブメンテナンス中）
+
+  devDependencies:
+    vite                    ^8      # 8.1.3 時点での最新
+    @vitejs/plugin-react    ^6      # 6.0.3 時点での最新
+
+  ※ exifr（v7.1.3）は5年以上更新がなく非推奨。exifreader を使用すること。
+
+  ※ UI コンポーネントライブラリ・状態管理ライブラリは使用しない。
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. ディレクトリ構成
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  リポジトリルート（ramen_logger/）に app/ ディレクトリを作成し、
+  その中に React + Vite プロジェクトを配置する。
+
+  app/
+  ├── public/
+  │   └── rlicon.png               # ファビコン
+  ├── src/
+  │   ├── main.jsx                 # React エントリーポイント
+  │   ├── App.jsx                  # アプリルート・グローバル状態管理
+  │   ├── App.css                  # グローバルスタイル
+  │   │
+  │   ├── lib/
+  │   │   └── supabase.js          # Supabase クライアントの初期化（シングルトン）
+  │   │
+  │   ├── utils/
+  │   │   └── imageProcess.js      # 画像処理（Canvas API）
+  │   │
+  │   ├── hooks/
+  │   │   ├── useStores.js         # 店舗一覧フェッチ・INSERT
+  │   │   └── useEntries.js        # 記録一覧フェッチ・INSERT
+  │   │
+  │   └── components/
+  │       ├── EntryForm/
+  │       │   ├── EntryForm.jsx    # 記録入力フォーム全体
+  │       │   ├── StoreSelector.jsx # 店舗選択ドロップダウン
+  │       │   └── MapPicker.jsx    # Google Maps による位置選択
+  │       │
+  │       ├── Stats/
+  │       │   ├── StatsArea.jsx    # タブ切り替えコンテナ
+  │       │   ├── YearMonthTab.jsx # 年・月別タブ
+  │       │   └── StoreTab.jsx     # 店舗別タブ
+  │       │
+  │       ├── PhotoGrid.jsx        # 4列写真グリッド
+  │       ├── PhotoModal.jsx       # ラーメン詳細モーダル
+  │       ├── StoreMap.jsx         # 店舗一覧地図
+  │       │
+  │       └── dialogs/
+  │           ├── ConfirmStoreDialog.jsx  # 新規店舗登録確認ダイアログ
+  │           └── NoPhotoDialog.jsx       # 写真未添付確認ダイアログ
+  │
+  ├── index.html
+  ├── vite.config.js
+  ├── package.json
+  └── .env.local                   # ローカル開発用（git管理外）
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. 環境変数
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Vite はクライアントに公開する環境変数に VITE_ プレフィックスが必要。
+
+  変数名                      参照方法（コード内）
+  ─────────────────────────   ─────────────────────────────────────────
+  VITE_SUPABASE_URL           import.meta.env.VITE_SUPABASE_URL
+  VITE_SUPABASE_KEY           import.meta.env.VITE_SUPABASE_KEY
+  VITE_GOOGLE_MAPS_API_KEY    import.meta.env.VITE_GOOGLE_MAPS_API_KEY
+
+  .env.local（ローカル開発用・.gitignore に追加すること）:
+    VITE_SUPABASE_URL=https://xxxx.supabase.co
+    VITE_SUPABASE_KEY=eyJ...
+    VITE_GOOGLE_MAPS_API_KEY=AIza...
+
+  Cloudflare Pages の本番環境では、ダッシュボードの
+  「Settings → Environment variables」に同じキーで登録する。
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. Supabase クライアント（src/lib/supabase.js）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  import { createClient } from '@supabase/supabase-js'
+
+  export const supabase = createClient(
+    import.meta.env.VITE_SUPABASE_URL,
+    import.meta.env.VITE_SUPABASE_KEY
+  )
+
+  このファイルをアプリ全体でインポートして使用する。
+  インスタンスは1つだけ（シングルトン）。
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. データアクセス（src/hooks/）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+────────────────────────────────────────
+6-1. useStores.js
+────────────────────────────────────────
+
+  返す値:
+    stores       : 店舗オブジェクトの配列 { id, name, latitude, longitude }
+    fetchStores  : 再フェッチ関数
+    insertStore  : async (name, latitude, longitude) => { id }
+
+  stores の取得クエリ:
+    supabase.from('stores').select('*').order('name')
+
+  insertStore の INSERT:
+    supabase.from('stores').insert({ name, latitude, longitude, created_at })
+    → 返ってきた data[0].id を呼び出し元に返す
+
+────────────────────────────────────────
+6-2. useEntries.js
+────────────────────────────────────────
+
+  返す値:
+    entries      : 記録オブジェクトの配列（stores JOIN 済み）
+    fetchEntries : 再フェッチ関数
+    insertEntry  : async (payload) => void
+
+  entries の取得クエリ:
+    supabase.from('entries')
+      .select('*, stores(name, latitude, longitude)')
+      .order('date', { ascending: false })
+
+  insertEntry の payload:
+    { date, store_id, ramen_name, score, comment, photo_path, created_at }
+
+  ※ thumbnail_path は INSERT しない（列はDBに残っているが使用しない）
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. 画像処理（src/utils/imageProcess.js）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+spec.txt 4章の仕様をブラウザ Canvas API で実装する。
+
+────────────────────────────────────────
+7-1. processImage(file) → Promise<Blob>
+────────────────────────────────────────
+
+  引数: File オブジェクト（ユーザーが選択した画像ファイル）
+  返値: 処理済み画像の Blob（JPEG, quality 0.80）
+
+  処理手順:
+    1. ExifReader.load(await file.arrayBuffer()) で EXIF を読み取り、
+       Orientation タグの value（1〜8）を取得
+    2. FileReader または createObjectURL で画像を HTMLImageElement に読み込む
+    3. Canvas を作成し、EXIF の向きに応じて回転・反転を適用してから描画
+       （向きが 1 またはなければそのまま描画）
+    4. 描画後の Canvas から ImageData を取得し、正方形クロップを行う
+         crop_size = min(canvas.width, canvas.height)
+         sx = (canvas.width  - crop_size) / 2
+         sy = (canvas.height - crop_size) / 2
+    5. 新しい 512×512 の Canvas を作成し、クロップ領域を drawImage で描画
+    6. canvas.toBlob(resolve, 'image/jpeg', 0.80) で Blob を得る
+
+────────────────────────────────────────
+7-2. EXIF 回転の適用（Canvas への描画前）
+────────────────────────────────────────
+
+  exifr が返す orientation 値に応じて Canvas の transform を設定する。
+  orientation ごとの transform:
+
+    1: そのまま
+    2: 水平反転
+    3: 180度回転
+    4: 垂直反転
+    5: 90度回転 + 水平反転
+    6: 90度時計回り
+    7: 90度回転 + 垂直反転
+    8: 90度反時計回り
+
+  回転が含まれる場合（5〜8）は Canvas の width/height を入れ替える。
+
+────────────────────────────────────────
+7-3. uploadPhoto(file) → Promise<string>
+────────────────────────────────────────
+
+  引数: File オブジェクト
+  返値: Supabase Storage の公開URL（文字列）
+
+  処理手順:
+    1. processImage(file) で Blob を得る
+    2. ファイル名を crypto.randomUUID().replace(/-/g, '') + '.jpg' で生成
+    3. supabase.storage.from('ramen-photos').upload(fileName, blob,
+         { contentType: 'image/jpeg' })
+    4. supabase.storage.from('ramen-photos').getPublicUrl(fileName)
+       → data.publicUrl を返す
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. グローバル状態管理（App.jsx）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+App.jsx がアプリ全体のルートとなり、以下の状態を管理する。
+子コンポーネントには props で渡す（Context は使わない）。
+
+  状態                        型              説明
+  ─────────────────────────   ─────────────   ─────────────────────────────────
+  stores                      array           店舗一覧
+  entries                     array           記録一覧（stores JOIN済み）
+  modalEntry                  object|null     詳細モーダルに表示する記録
+  pendingSave                 object|null     新規店舗登録確認ダイアログ用データ
+  showNoPhotoDialog           boolean         写真未添付ダイアログの表示フラグ
+  activeTab                   string          'year-month' | 'store'
+
+  pendingSave の構造:
+    {
+      storeName, storeLat, storeLon,
+      visitDate, ramenName, score, comment,
+      photoFile   // File オブジェクト
+    }
+
+  App.jsx の返却:
+    <EntryForm />
+    <StatsArea />
+    <PhotoModal />（modalEntry が非null のとき表示）
+    <ConfirmStoreDialog />（pendingSave が非null のとき表示）
+    <NoPhotoDialog />（showNoPhotoDialog が true のとき表示）
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. コンポーネント仕様
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+────────────────────────────────────────
+9-1. EntryForm.jsx
+────────────────────────────────────────
+
+  ローカル状態:
+    selectedStoreId   : 'new' | stores[n].id
+    mapLat, mapLng    : number|null
+    mapName           : string
+    manualName        : string
+    lastAction        : 'map' | 'manual' | ''
+    visitDate         : string（YYYY-MM-DD）
+    ramenName         : string
+    score             : number（1〜5）
+    comment           : string
+    photoFile         : File|null
+
+  保存ボタン押下時の処理:
+    1. ramenName が空 → エラーメッセージをセット
+    2. selectedStoreId === 'new' かつ storeName が空 → エラーメッセージをセット
+    3. photoFile が null → showNoPhotoDialog = true
+    4. selectedStoreId === 'new' → pendingSave をセット（確認ダイアログへ）
+    5. 既存店舗 → 即時保存
+         uploadPhoto(photoFile) → photoUrl
+         insertEntry({ date, store_id, ramen_name, score, comment, photo_path })
+         fetchEntries()
+         フォームリセット
+
+  storeName の決定:
+    lastAction === 'map' ? mapName : manualName
+
+────────────────────────────────────────
+9-2. MapPicker.jsx
+────────────────────────────────────────
+
+  Google Maps を iframe ではなく、index.html の <script> タグで
+  Maps JS API をロードし、コンポーネント内の div#map に対して
+  new google.maps.Map(...) を初期化する。
+
+  index.html での API ロード:
+    <script src="https://maps.googleapis.com/maps/api/js
+      ?key=%VITE_GOOGLE_MAPS_API_KEY%
+      &libraries=places,geometry
+      &callback=initMap"
+      async defer></script>
+
+  ただし Vite では %VITE_...% の直接展開はできないため、
+  index.html に以下のインラインスクリプトを追加する方法を使う:
+
+    <script>
+      window.__GMAPS_KEY__ = '%VITE_GOOGLE_MAPS_API_KEY%'
+    </script>
+
+  あるいは MapPicker.jsx 内で動的に <script> を document.head に
+  append してロードする（useEffect 内で1回だけ）。
+
+  コンポーネント内の動作（spec.txt 5-1 [B] と同一）:
+    - useEffect でマップ初期化（google.maps.Map）
+    - Geolocation API で現在地を取得して初期センターに設定
+    - クリックイベントで Places API nearbySearch → 店舗名取得
+    - 取得した lat / lng / name を props の onSelect(lat, lng, name) で親に通知
+
+  props:
+    onSelect: (lat, lng, name) => void
+    initialLat, initialLng: number（再表示時の復元用）
+
+────────────────────────────────────────
+9-3. PhotoGrid.jsx
+────────────────────────────────────────
+
+  props:
+    entries    : 表示する記録の配列
+    keyPrefix  : string（各セルのキー重複回避用）
+    onClickEntry : (entry) => void
+
+  レンダリング:
+    4列のグリッド。CSS Grid または Flexbox で実装。
+
+  CSS要件（モバイルでの4列維持）:
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 2px;
+
+  各セル:
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
+    <img
+      src={entry.photo_path}
+      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+      onClick={() => onClickEntry(entry)}
+    />
+    ※ objectFit: cover により、既存の非正方形画像も正方形セルに収まる
+
+  photo_path が null のセル:
+    グレー背景 + 📷 アイコン（aspect-ratio: 1/1 を維持）
+
+────────────────────────────────────────
+9-4. PhotoModal.jsx
+────────────────────────────────────────
+
+  props:
+    entry   : 表示する記録オブジェクト
+    onClose : () => void
+
+  表示:
+    オーバーレイ（画面全体を暗くする半透明背景）の上にモーダルを表示。
+    モーダル自体は縦スクロール可能なカード形式。
+
+  内容（spec.txt 5-2 参照）:
+    写真（width: 100%, objectFit: contain）
+    🍜 {ramen_name}
+    📅 {date}　　⭐ {score} 点
+    📍 {stores.name}
+    💬 {comment}（あれば）
+    [閉じる] ボタン → onClose()
+
+  閉じる操作:
+    「閉じる」ボタンのみ。× ボタンは表示しない。
+    オーバーレイクリックでも閉じる（UX向上のため）。
+
+────────────────────────────────────────
+9-5. ConfirmStoreDialog.jsx
+────────────────────────────────────────
+
+  props:
+    pending : pendingSave オブジェクト
+    onConfirm : async () => void
+    onCancel  : () => void
+
+  onConfirm の処理:
+    1. insertStore(pending.storeName, pending.storeLat, pending.storeLon) → storeId
+    2. uploadPhoto(pending.photoFile) → photoUrl
+    3. insertEntry({ ...pending fields, store_id: storeId, photo_path: photoUrl })
+    4. fetchEntries()
+    5. pendingSave = null・フォームリセット
+
+────────────────────────────────────────
+9-6. StatsArea.jsx / YearMonthTab.jsx / StoreTab.jsx
+────────────────────────────────────────
+
+  StatsArea.jsx:
+    タブ（「年・月別」「店舗別」）のヘッダーと切り替え状態を管理。
+    activeTab に応じて YearMonthTab または StoreTab を表示。
+
+  YearMonthTab.jsx（spec.txt 5-3 タブ1 参照）:
+    props: entries
+    - 年別集計テーブルを表示
+    - 年選択ドロップダウン（降順）
+    - 選択年の月別グループを降順で表示、各月に PhotoGrid を表示
+
+    集計ロジック（クライアントサイドで実行）:
+      yearStats  : entries を date[:4] でカウント
+      monthStats : entries を date[:7] でカウント・グループ化
+
+  StoreTab.jsx（spec.txt 5-3 タブ2 参照）:
+    props: entries, stores
+    - 年選択ドロップダウン（降順）
+    - 選択年の店舗別集計を訪問回数降順で表示、各店舗に PhotoGrid を表示
+    - StoreMap コンポーネントを下部に表示
+
+────────────────────────────────────────
+9-7. StoreMap.jsx
+────────────────────────────────────────
+
+  props:
+    stores : 店舗の配列
+
+  latitude / longitude が両方 null でない店舗が1件以上あれば
+  Google Maps に全マーカーを表示。
+  すべて null なら店舗名のテキストリストを表示。
+
+  Maps の設定（spec.txt 5-3 タブ2 参照）:
+    center: stores[0] の緯度・経度
+    zoom: 12
+    各マーカークリック → InfoWindow に店舗名を表示
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. Google Maps API のロード方法
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Vite は index.html の環境変数を自動展開しないため、
+以下のいずれかの方法で API キーを渡す。
+
+【推奨】動的ロード（MapPicker.jsx と StoreMap.jsx の useEffect 内）:
+
+  const loadGoogleMaps = () => {
+    if (window.google?.maps) return Promise.resolve()
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script')
+      script.src = `https://maps.googleapis.com/maps/api/js` +
+        `?key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY}` +
+        `&libraries=places,geometry&callback=__gmapsReady`
+      window.__gmapsReady = resolve
+      script.onerror = reject
+      document.head.appendChild(script)
+    })
+  }
+
+  このヘルパー関数を utils/ に置き、地図コンポーネントから呼び出す。
+  window.google.maps が既にロード済みなら即 resolve して二重ロードを防ぐ。
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. vite.config.js
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  import { defineConfig } from 'vite'
+  import react from '@vitejs/plugin-react'
+
+  export default defineConfig({
+    plugins: [react()],
+    // SPAのルーティング（現状はルートのみだが念のため設定）
+    // Cloudflare Pages は _redirects ファイルでも対応可
+  })
+
+  特別な設定は不要。
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. Cloudflare Pages デプロイ設定
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Cloudflare Pages ダッシュボードでの設定:
+
+    接続リポジトリ  : gtatsu33/ramen_logger（GitHub）
+    ブランチ        : main
+    ルートディレクトリ: app
+    ビルドコマンド  : npm run build
+    ビルド出力ディレクトリ: dist
+
+  環境変数（「Settings → Environment variables」）:
+    VITE_SUPABASE_URL        = https://xxxx.supabase.co
+    VITE_SUPABASE_KEY        = eyJ...
+    VITE_GOOGLE_MAPS_API_KEY = AIza...
+
+  ※ 環境変数は Production / Preview 両方に設定すること。
+  ※ VITE_ プレフィックスを含めた名前のまま登録する。
+
+  SPA 対応（任意）:
+    app/public/_redirects ファイルを作成:
+      /*  /index.html  200
+    将来的にパスベースのルーティングを追加する場合に必要。
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. ローカル開発手順
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1. cd app
+  2. npm install
+  3. .env.local を作成し、環境変数を記入
+  4. npm run dev
+  5. ブラウザで http://localhost:5173 を開く
+
+  ※ Supabase は本番と同じインスタンスを使用する（開発用を別途用意する場合は
+    .env.local の URL/KEY を変更するだけでよい）。
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. .gitignore への追加
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  既存の .gitignore に以下を追加:
+
+    app/node_modules/
+    app/dist/
+    app/.env.local
+
+================================================================================
+  END OF IMPLEMENT
+================================================================================
