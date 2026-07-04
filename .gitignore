@@ -9,3 +9,5 @@
 app/node_modules/
 app/dist/
 app/.env.local
+scripts/node_modules/
+scripts/backup/

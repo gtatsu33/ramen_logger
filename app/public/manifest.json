@@ -1,0 +1,11 @@
+{
+  "name": "ラーメンロガー",
+  "short_name": "ラーメンロガー",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#fafaf8",
+  "background_color": "#fafaf8",
+  "icons": [
+    { "src": "/rlicon.png", "sizes": "any", "type": "image/png" }
+  ]
+}
