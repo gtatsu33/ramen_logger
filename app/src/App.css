@@ -185,6 +185,11 @@
   border-radius: 6px;
 }
 
+.field input[type="date"] {
+  display: block;
+  text-align: left;
+}
+
 .field textarea { resize: vertical; }
 
 /* スライダー */
