@@ -160,8 +160,9 @@
 /* フォームフィールド */
 .field {
   margin-bottom: 1rem;
-  overflow: hidden;
-  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .field label {
