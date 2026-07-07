@@ -188,6 +188,8 @@
 .field input[type="date"] {
   display: block;
   text-align: left;
+  width: 100%;
+  width: -webkit-fill-available;
 }
 
 .field textarea { resize: vertical; }
