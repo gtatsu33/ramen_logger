@@ -161,6 +161,7 @@
 .field {
   margin-bottom: 1rem;
   overflow: hidden;
+  border-radius: 6px;
 }
 
 .field label {
