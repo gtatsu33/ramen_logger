@@ -136,7 +136,6 @@
   max-width: 640px;
   max-height: 92svh;
   overflow-y: auto;
-  overflow-x: hidden;
   padding: 1.25rem 1.25rem 2rem;
 }
 
@@ -161,6 +160,7 @@
 /* フォームフィールド */
 .field {
   margin-bottom: 1rem;
+  overflow: hidden;
 }
 
 .field label {
