@@ -136,6 +136,7 @@
   max-width: 640px;
   max-height: 92svh;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 1.25rem 1.25rem 2rem;
 }
 
