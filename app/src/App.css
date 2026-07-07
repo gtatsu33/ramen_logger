@@ -194,6 +194,17 @@
 
 .field textarea { resize: vertical; }
 
+.field input[type="file"]::file-selector-button,
+.field input[type="file"]::-webkit-file-upload-button {
+  font-size: 1rem;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  cursor: pointer;
+}
+
 /* スライダー */
 .score-row {
   display: flex;
