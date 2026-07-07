@@ -6,6 +6,8 @@ import { PhotoModal } from './components/PhotoModal'
 import { StatsArea } from './components/Stats/StatsArea'
 import './App.css'
 
+const APP_VERSION = '1.0.0'
+
 function App() {
   const { stores, fetchStores } = useStores()
   const { entries, fetchEntries } = useEntries()
@@ -21,7 +23,7 @@ function App() {
     <div>
       <header className="app-header">
         <div>
-          <h1>🍜 ラーメンロガー</h1>
+          <h1>🍜 ラーメンロガー <span className="version">v{APP_VERSION}</span></h1>
           <p className="caption">{entries.length}件の記録</p>
         </div>
       </header>

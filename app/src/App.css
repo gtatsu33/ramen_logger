@@ -11,10 +11,18 @@
 }
 
 .app-header h1 {
-  font-size: 1.2rem;
+  font-size: 1.8rem;
   font-weight: 700;
   color: var(--gold-light);
   letter-spacing: 0.03em;
+}
+
+.app-header .version {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--muted);
+  letter-spacing: 0;
+  vertical-align: middle;
 }
 
 .app-header .caption {
